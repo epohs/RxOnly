@@ -64,9 +64,9 @@ Setting `DEBUG` to true will disable compression of the site by [Flask-Compress]
 All config options are documented in [`config.py`](/rxonly/config.py).
 
 
-### Running the Collector
+### Running the Collector script
 
-The collector connects to the Meshtastic node and stores received packets in SQLite.
+The collector script connects to the Meshtastic node and stores received packets in SQLite.
 
 ```
 source .venv/bin/activate
