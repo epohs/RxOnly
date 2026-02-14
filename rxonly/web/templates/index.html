@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="RxOnly - Meshtastic mesh network monitor">
+
+  <title>RxOnly</title>
+
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/favicon-180x180.png') }}">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/favicon-16x16.png') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32x32.png') }}">
+  <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+  <link rel="manifest" href="{{ url_for('static', filename='img/manifest.json') }}">
+  <meta name="theme-color" content="#4DE185">
+
+  {% if debug %}  
+  <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/rxonly.css') }}">
+  {% else %}
+  <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/rxonly-MQI3QDNV.min.css') }}">
+  {% endif %}
+
+</head>
+<body class="no-js" data-api-node-url-template="{{ url_for('api.get_node', node_id='__NODE_ID__') }}"
+      data-api-nodes-url="{{ url_for('api.get_nodes') }}"
+      data-api-stats-url="{{ url_for('api.get_stats') }}"
+      data-api-message-url-template="{{ url_for('api.get_message', message_id=0) | replace('0', '__MESSAGE_ID__') }}"
+      {% if log_direct_messages %}data-api-dm-url-template="{{ url_for('api.get_direct_message', message_id=0) | replace('0', '__MESSAGE_ID__') }}"{% endif %}>
+
+  <header class="device-bar">
+    <h1><a href="{{ url_for('dashboard.index') }}" class="device-bar-home">{{ device_name }}</a></h1>
+    <a href="https://github.com/epohs/RxOnly" target="_blank" rel="noopener noreferrer" class="github-link" aria-label="View on GitHub">
+      <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+    </a>
+  </header>
+
+  <nav class="breadcrumbs" aria-label="Breadcrumb">
+    <ol>
+      <li><a href="/" aria-current="page">Dashboard</a></li>
+    </ol>
+  </nav>
+
+  <div class="app-layout">
+
+    <aside class="sidebar">
+
+      <section class="channels-panel" aria-labelledby="channels-heading">
+        <h2 id="channels-heading">Channels</h2>
+        <ul class="channels-list">
+          {% for channel in channels %}
+          <li>
+            <a href="{{ url_for('api.get_messages', channel_index=channel.channel_index) }}"
+               data-channel-index="{{ channel.channel_index }}"
+               class="channel-link">
+              <span class="channel-name">{{ channel.name or 'Channel ' ~ channel.channel_index }}</span>
+              <span class="channel-count">({{ channel.message_count }})</span>
+            </a>
+          </li>
+          {% else %}
+          <li class="empty-state">No channels</li>
+          {% endfor %}
+          {% if log_direct_messages %}
+          <li>
+            <a href="{{ url_for('api.get_direct_messages') }}"
+               data-channel-index="dm"
+               class="channel-link channel-link--dm">
+              <span class="channel-name">Direct Messages</span>
+              <span class="channel-count">({{ total_direct_messages }})</span>
+            </a>
+          </li>
+          {% endif %}
+        </ul>
+      </section>
+
+      <section class="nodes-panel" aria-labelledby="nodes-heading">
+        <h2 id="nodes-heading">Nodes <span class="node-count">({{ total_nodes }})</span></h2>
+        <div class="nodes-search">
+          <div class="nodes-search-reveal">
+            <input type="text" id="nodes-search-input" class="nodes-search-input" placeholder="Filter nodes..." aria-label="Filter nodes">
+            <button type="button" id="nodes-search-clear" class="nodes-search-clear" aria-label="Clear filter" hidden>
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+                <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <ul class="nodes-list" data-total="{{ total_nodes }}" data-offset="50">
+          {% for node in nodes %}
+          <li>
+            <a href="{{ url_for('api.get_node', node_id=node.node_id) }}"
+               data-node-id="{{ node.node_id }}"
+               class="node-link">
+              <span class="node-name">
+                {%- if node.long_name and node.short_name -%}
+                  <span class="node-long-name">{{ node.long_name }}</span> <span class="node-short-name">({{ node.short_name }})</span>
+                {%- elif node.long_name -%}
+                  <span class="node-long-name">{{ node.long_name }}</span>
+                {%- elif node.short_name -%}
+                  <span class="node-short-name">{{ node.short_name }}</span>
+                {%- else -%}
+                  <span class="node-id">{{ node.node_id }}</span>
+                {%- endif -%}
+              </span>
+              {% if node.last_seen %}
+              <time class="node-last-seen" datetime="{{ node.last_seen | format_iso_timestamp }}">{{ node.last_seen | format_timestamp }}</time>
+              {% endif %}
+            </a>
+          </li>
+          {% else %}
+          <li class="empty-state">No nodes</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+    </aside>
+
+    <main class="main-content" id="main-content">
+      {% include "partials/dashboard.html" %}
+    </main>
+
+  </div>
+
+  
+  {# Template partials for JS cloning #}
+  {% include "partials/dashboard_template.html" %}
+  {% include "partials/node_detail.html" %}
+  {% include "partials/message_item.html" %}
+  {% include "partials/messages_list.html" %}
+  {% include "partials/message_detail.html" %}
+
+
+  {% if debug %}
+  <script src="{{ url_for('static', filename='js/rxonly.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/messages.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/nodes.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/views.js') }}"></script>
+  {% else %}
+  <script src="{{ url_for('static', filename='js/rxonly-7EP7CFPP.min.js') }}"></script>
+  {% endif %}
+  
+</body>
+</html>

@@ -1,0 +1,43 @@
+[Unit]
+Description=RxOnly Meshtastic Collector
+After=network.target
+
+[Service]
+Type=simple
+
+#
+# This service runs the RxOnly Meshtastic collector as a long-lived process.
+#
+# The collector connects to a Meshtastic device via a local serial interface,
+# listens for incoming packets, and persists selected messages and channel
+# data into a SQLite database.
+#
+# The process is expected to run continuously; systemd will automatically
+# restart it if the collector exits or crashes.
+#
+
+User=YOURUSERNAME
+Group=YOURGROUP
+
+# Project root directory
+WorkingDirectory=/path/to/RxOnly
+
+# Ensure unbuffered output so logs appear immediately in journald
+Environment=PYTHONUNBUFFERED=1
+
+# Launch the collector from the project virtual environment
+ExecStart=/path/to/RxOnly/.venv/bin/python RxOnly/scripts/run_collector.py
+
+# Always restart on failure or unexpected exit
+Restart=always
+RestartSec=5
+
+# ---------------------------------------------------------------------------
+# Lightweight hardening (safe for serial-connected services)
+# ---------------------------------------------------------------------------
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

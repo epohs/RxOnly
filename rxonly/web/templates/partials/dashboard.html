@@ -1,0 +1,76 @@
+{# Server-side rendered dashboard (populated on first page load) #}
+<article class="dashboard" id="dashboard">
+  <header class="dashboard-header">
+    <h2 class="dashboard-node-name">
+      {%- if local_node and local_node.long_name -%}
+        {{ local_node.long_name }}
+      {%- elif local_node and local_node.short_name -%}
+        {{ local_node.short_name }}
+      {%- elif local_node and local_node.node_id -%}
+        {{ local_node.node_id }}
+      {%- else -%}
+        Unknown Node
+      {%- endif -%}
+    </h2>
+    {% if local_node and local_node.long_name and local_node.short_name %}
+    <span class="dashboard-node-short">{{ local_node.short_name }}</span>
+    {% endif %}
+  </header>
+
+  <section class="dashboard-section">
+    <h3>Local Node</h3>
+    <table class="dashboard-table">
+      <tbody>
+        {% if local_node %}
+          {% if local_node.node_id %}
+          <tr><th scope="row">Node ID</th><td data-field="node-id">{{ local_node.node_id }}</td></tr>
+          {% endif %}
+          {% if local_node.hardware %}
+          <tr><th scope="row">Hardware</th><td data-field="hardware">{{ local_node.hardware }}</td></tr>
+          {% endif %}
+          {% if local_node.role %}
+          <tr><th scope="row">Role</th><td data-field="role">{{ local_node.role }}</td></tr>
+          {% endif %}
+          {% if local_node.first_seen %}
+          <tr><th scope="row">First Seen</th><td data-field="first-seen">{{ local_node.first_seen | format_timestamp }}</td></tr>
+          {% endif %}
+          {% if local_node.last_seen %}
+          <tr><th scope="row">Last Seen</th><td data-field="last-seen">{{ local_node.last_seen | format_timestamp }}</td></tr>
+          {% endif %}
+          {% if local_node.battery_level is not none %}
+          <tr><th scope="row">Battery</th><td data-field="battery">{{ local_node.battery_level }}%</td></tr>
+          {% endif %}
+          {% if local_node.voltage is not none %}
+          <tr><th scope="row">Voltage</th><td data-field="voltage">{{ local_node.voltage }}V</td></tr>
+          {% endif %}
+        {% else %}
+          <tr><td colspan="2" class="empty-state">No node information available</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="dashboard-section">
+    <h3>Network Stats</h3>
+    <div class="dashboard-stats">
+      <div class="stat-card">
+        <span class="stat-value" id="dashboard-stat-nodes">{{ total_nodes }}</span>
+        <span class="stat-label">Nodes</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" id="dashboard-stat-messages">{{ total_messages }}</span>
+        <span class="stat-label">Messages</span>
+      </div>
+      {% if log_direct_messages %}
+      <div class="stat-card">
+        <span class="stat-value" id="dashboard-stat-dms">{{ total_direct_messages }}</span>
+        <span class="stat-label">Direct Messages</span>
+      </div>
+      {% endif %}
+      <div class="stat-card">
+        <span class="stat-value" id="dashboard-stat-channels">{{ total_channels }}</span>
+        <span class="stat-label">Channels</span>
+      </div>
+    </div>
+  </section>
+</article>

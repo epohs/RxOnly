@@ -1,0 +1,35 @@
+[Unit]
+Description=RxOnly WWW (Gunicorn)
+After=network.target
+
+[Service]
+User=YOURUSERNAME
+Group=www-data
+
+# Project root directory
+WorkingDirectory=/path/to/RxOnly
+
+# Virtual environment used by the application
+Environment="PATH=/path/to/RxOnly/.venv/bin"
+
+# Start Gunicorn directly.
+#
+# NOTE:
+#   Worker count and bind address are intentionally hardcoded here so this
+#   service works without requiring a separate Gunicorn configuration file.
+#
+#   If you choose to use a gunicorn.conf.py file, remove the --bind and
+#   --workers flags below and add:
+#
+#       --config gunicorn.conf.py
+#
+ExecStart=/path/to/RxOnly/.venv/bin/gunicorn \
+    --bind 127.0.0.1:8000 \
+    --workers 2 \
+    rxonly.web:create_app()
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

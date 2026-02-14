@@ -1,0 +1,20 @@
+<template id="template-message-detail">
+  <article class="message-detail">
+    <h2>Message Details</h2>
+    <table>
+      <tbody>
+        <tr><th scope="row">Message ID</th><td data-field="message-id"></td></tr>
+        <tr><th scope="row">From</th><td><a href="#" class="message-detail-from node-link" data-field="from-node" data-node-id=""></a></td></tr>
+        <tr><th scope="row">To</th><td data-field="to-node"></td></tr>
+        <tr><th scope="row">Reply To</th><td><a href="#" class="message-detail-reply-to" data-field="reply-to" data-reply-to-id=""></a></td></tr>
+        <tr><th scope="row">Message</th><td data-field="text"></td></tr>
+        <tr><th scope="row">Received</th><td data-field="rx-time"></td></tr>
+        <tr><th scope="row">Channel</th><td data-field="channel"></td></tr>
+        <tr><th scope="row">Hops</th><td data-field="hop-count"></td></tr>
+        <tr><th scope="row">SNR</th><td data-field="snr"></td></tr>
+        <tr><th scope="row">RSSI</th><td data-field="rssi"></td></tr>
+        <tr><th scope="row">Via MQTT</th><td data-field="via-mqtt"></td></tr>
+      </tbody>
+    </table>
+  </article>
+</template>

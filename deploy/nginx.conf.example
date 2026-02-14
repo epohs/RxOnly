@@ -1,0 +1,78 @@
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    server_name rxonly.your-domain.com;
+
+    ssl_certificate /etc/letsencrypt/live/rxonly.your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/rxonly.your-domain.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    access_log /var/log/nginx/rxonly.access.log;
+    error_log /var/log/nginx/rxonly.error.log;
+
+
+    # ---- Security Headers ----
+
+    # Enforce HTTPS usage by browsers
+    # Set max-age to 86400 (1 day) for safe experimentation
+    # Increase to 2592000 (30 days) for better modern conformity
+    add_header Strict-Transport-Security "max-age=86400" always;
+
+    # Restrict where content can be loaded from (prevents XSS and injection)
+    add_header Content-Security-Policy "
+    default-src 'self';
+    img-src 'self';
+    script-src 'self';
+    style-src 'self' 'unsafe-inline';
+    object-src 'none';
+    base-uri 'self';
+    frame-ancestors 'none';
+    " always;
+
+    # Disable access to browser features and sensors
+    add_header Permissions-Policy "
+    accelerometer=(),
+    camera=(),
+    geolocation=(),
+    gyroscope=(),
+    magnetometer=(),
+    microphone=(),
+    payment=(),
+    usb=()
+    " always;
+
+    location = /favicon.ico {
+        alias /path/to/RxOnly/rxonly/web/static/img/favicon.ico;
+        access_log off;
+        log_not_found off;
+    }
+
+    location / {
+    
+        # Uncomment the two lines below if you plan
+        # to enable Basic user/pass Authentication.
+        # NOTE: Enabling this is a good idea.
+        #auth_basic "Restricted Area";
+        #auth_basic_user_file /etc/nginx/auth/rxonly.htpasswd;    
+    
+        # Uncomment the line below if you use Cloudflare
+        # for your DNS provider, and you are also using
+        # the cloudflare-sync-ips.sh from the /deploy/ folder.
+        #include cloudflare;
+        include proxy_params;
+
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+
+server {
+    listen 80;
+    server_name rxonly.your-domain.com;
+    return 301 https://$host$request_uri;
+}

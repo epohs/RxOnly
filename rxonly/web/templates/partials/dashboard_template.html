@@ -1,0 +1,48 @@
+{# Template for JS to clone when navigating back to dashboard #}
+<template id="template-dashboard">
+  <article class="dashboard" id="dashboard">
+    <header class="dashboard-header">
+      <h2 class="dashboard-node-name"></h2>
+      <span class="dashboard-node-short"></span>
+    </header>
+
+    <section class="dashboard-section">
+      <h3>Local Node</h3>
+      <table class="dashboard-table">
+        <tbody>
+          <tr><th scope="row">Node ID</th><td data-field="node-id"></td></tr>
+          <tr><th scope="row">Hardware</th><td data-field="hardware"></td></tr>
+          <tr><th scope="row">Role</th><td data-field="role"></td></tr>
+          <tr><th scope="row">First Seen</th><td data-field="first-seen"></td></tr>
+          <tr><th scope="row">Last Seen</th><td data-field="last-seen"></td></tr>
+          <tr><th scope="row">Battery</th><td data-field="battery"></td></tr>
+          <tr><th scope="row">Voltage</th><td data-field="voltage"></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="dashboard-section">
+      <h3>Network Stats</h3>
+      <div class="dashboard-stats">
+        <div class="stat-card">
+          <span class="stat-value" id="dashboard-stat-nodes"></span>
+          <span class="stat-label">Nodes</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="dashboard-stat-messages"></span>
+          <span class="stat-label">Messages</span>
+        </div>
+        {% if log_direct_messages %}
+        <div class="stat-card">
+          <span class="stat-value" id="dashboard-stat-dms"></span>
+          <span class="stat-label">Direct Messages</span>
+        </div>
+        {% endif %}
+        <div class="stat-card">
+          <span class="stat-value" id="dashboard-stat-channels"></span>
+          <span class="stat-label">Channels</span>
+        </div>
+      </div>
+    </section>
+  </article>
+</template>
