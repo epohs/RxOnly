@@ -4,7 +4,7 @@ This folder contains a handful of example scripts that you can use to deploy thi
 
 Specific guidance on implementation is not within the scope of this project, but I’ve tried to give descriptions and context for how these files can be customized for you.
 
-> **IMPORTANT:** Read the main [README](/README.md) in the root of this project for more information about the risks and concerns of running this project publicly. Don’t deploy this publicly unless you understand the dangers.
+> **IMPORTANT:** Refer to the main [README](/README.md) in the root of this project for more information about the risks and concerns of running this project publicly. Don’t deploy this publicly unless you understand the dangers.
 
 
 ## [cloudflare-dyndns.sh](./cloudflare-dyndns.sh)
