@@ -1,6 +1,4 @@
-# Descriptions of the files in this directory
-
-**Example scripts and configuration files for deploying RxOnly for yourself**
+# Example scripts and configuration files for deploying RxOnly
 
 This folder contains a handful of example scripts that you can use to deploy this project for yourself. With the exception of `gunicorn.conf.py`, all of these scripts should be copied out of this project and installed in the appropriate locations on the system that will host the project.
 
