@@ -61,6 +61,8 @@ Use that value in your own `config.json` using `“SERIAL_PORT”: “/dev/seria
 
 Setting `DEBUG` to true will disable compression of the site by [Flask-Compress](https://pypi.org/project/Flask-Compress/), and will serve the unminified CSS and JS files, as well as writing more verbose logs.
 
+All config options are documented in [`config.py`](/rxonly/config.py).
+
 
 ### Running the Collector
 
