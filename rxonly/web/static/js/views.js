@@ -565,19 +565,9 @@
   }
   
   function handle_nodes_heading_click(event) {
-    
-    event.target.style.border = "1px solid orange";
-    
     if (!R.is_mobile_layout() && dom_elements.nodes_list) {
       dom_elements.nodes_list.scrollTo({ top: 0, behavior: "smooth" });
-    
-      event.target.style.borderColor = "green";
-    } else {
-      event.target.style.borderColor = "red";
-      console.log('iml: ', R.is_mobile_layout());
-      console.log('denl: ', dom_elements.nodes_list);
     }
-    
   }
 
   function handle_breadcrumb_click(event) {
@@ -685,9 +675,8 @@
     
     // Nodes list heading (sidebar)
     if (dom_elements.nodes_list_heading) {
-      dom_elements.nodes_list_heading.style.backgroundColor = "lightgreen";
       dom_elements.nodes_list_heading.addEventListener("click", handle_nodes_heading_click);
-    } else { dom_elements.nodes_list.style.backgroundColor = "lightred"; }
+    }
 
     // Node clicks (sidebar)
     if (dom_elements.nodes_list) {
