@@ -572,7 +572,11 @@
       dom_elements.nodes_list.scrollTo({ top: 0, behavior: "smooth" });
     
       event.target.style.borderColor = "green";
-    } else { event.target.style.borderColor = "red"; }
+    } else {
+      event.target.style.borderColor = "red";
+      console.log('iml: ', R.is_mobile_layout);
+      console.log('denl: ', dom_elements.nodes_list);
+    }
     
   }
 
