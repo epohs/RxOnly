@@ -563,6 +563,14 @@
     var node_id = node_link.dataset.nodeId;
     location.hash = "node/" + node_id;
   }
+  
+  function handle_nodes_heading_click(event) {
+    
+    if (!R.is_mobile_layout && dom_elements.nodes_list) {
+      dom_elements.nodes_list.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    
+  }
 
   function handle_breadcrumb_click(event) {
     var breadcrumb_link = event.target.closest("a");
@@ -665,6 +673,11 @@
     // Channel clicks
     if (dom_elements.channels_list) {
       dom_elements.channels_list.addEventListener("click", handle_channel_click);
+    }
+    
+    // Nodes list heading (sidebar)
+    if (dom_elements.nodes_list_heading) {
+      dom_elements.nodes_list_heading.addEventListener("click", handle_nodes_heading_click);
     }
 
     // Node clicks (sidebar)
