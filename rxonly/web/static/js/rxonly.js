@@ -104,7 +104,7 @@
     nodes_list: document.querySelector(".nodes-list"),
     nodes_count: document.querySelector(".node-count"),
     channels_list: document.querySelector(".channels-list"),
-    nodes_list_heading: document.getElementById("nodes-heading),
+    nodes_list_heading: document.getElementById("nodes-heading"),
     nodes_search_input: document.getElementById("nodes-search-input"),
     nodes_search_clear: document.getElementById("nodes-search-clear"),
   };
