@@ -439,7 +439,7 @@ class MeshtasticCollector:
               name = raw_name.strip()
 
         if not name:
-          if idx == primary_index:
+          if idx == primary_channel:
             name = "Primary"
           else:
             name = f"Channel {idx}"
