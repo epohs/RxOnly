@@ -683,7 +683,7 @@
     if (dom_elements.nodes_list_heading) {
       dom_elements.nodes_list_heading.style.backgroundColor = "lightgreen";
       dom_elements.nodes_list_heading.addEventListener("click", handle_nodes_heading_click);
-    } else { dom_elements.nodes_list_heading.style.backgroundColor = "lightred"; }
+    } else { dom_elements.nodes_list.style.backgroundColor = "lightred"; }
 
     // Node clicks (sidebar)
     if (dom_elements.nodes_list) {
