@@ -568,13 +568,13 @@
     
     event.target.style.border = "1px solid orange";
     
-    if (!R.is_mobile_layout && dom_elements.nodes_list) {
+    if (!R.is_mobile_layout() && dom_elements.nodes_list) {
       dom_elements.nodes_list.scrollTo({ top: 0, behavior: "smooth" });
     
       event.target.style.borderColor = "green";
     } else {
       event.target.style.borderColor = "red";
-      console.log('iml: ', R.is_mobile_layout);
+      console.log('iml: ', R.is_mobile_layout());
       console.log('denl: ', dom_elements.nodes_list);
     }
     
