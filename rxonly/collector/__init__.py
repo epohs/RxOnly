@@ -439,7 +439,10 @@ class MeshtasticCollector:
               name = raw_name.strip()
 
         if not name:
-          name = f"Channel {idx}"
+          if idx == primary_index:
+            name = "Primary"
+          else:
+            name = f"Channel {idx}"
 
         logging.info("Tracking channel: index=%s name=%s", idx, name)
         self.storage.upsert_channel(idx, name)
