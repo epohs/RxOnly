@@ -15,7 +15,7 @@ This project is built for personal use and experimentation, prioritizing clarity
 >
 > If you deploy RxOnly in a way that makes it publicly accessible, you will almost certainly be exposing your home IP address, and you are responsible for understanding and accepting the security implications of doing so. This project is provided as a read-only dashboard, but that does not eliminate the broader risks that come with running publicly reachable services.
 >
-> If you’re not comfortable thinking through things like network exposure, reverse proxies, SSH hardening, firewall rules, and access control, you should take the time to do so before deploying this publicly.
+> If you’re not comfortable thinking through things like network exposure, reverse proxies, SSH hardening, firewall rules, and access control, you should take the time to understand them before deploying this publicly.
 
 > **ALSO:** Do not expose private channels or DMs that are assumed to be private to the public internet. That’s not cool, and it is **not** what this project is intended for. Private channels are private for a reason.
 
