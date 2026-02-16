@@ -19,9 +19,9 @@ Environment="PATH=/path/to/RxOnly/.venv/bin"
 #   service works without requiring a separate Gunicorn configuration file.
 #
 #   If you choose to use a gunicorn.conf.py file, remove the --bind and
-#   --workers flags below and add:
+#   --workers flags below and replace with:
 #
-#       --config gunicorn.conf.py
+#       --config gunicorn.conf.py \
 #
 ExecStart=/path/to/RxOnly/.venv/bin/gunicorn \
     --bind 127.0.0.1:8000 \
