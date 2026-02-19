@@ -41,7 +41,7 @@
 @media (prefers-color-scheme: light) {
   :root {
     /* Core surfaces */
-    --color-bg-app: oklch(0.8249 0.0395 66.71);
+    --color-bg-app: oklch(0.9659 0.0027 66.71);
     --color-bg-surface: oklch(0.9451 0.0074 73.06);
     --color-bg-surface-alt: oklch(0.9332 0.0121 73.06);
     --color-bg-below-surface: oklch(0.8591 0.0121 73.06);
