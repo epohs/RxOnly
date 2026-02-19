@@ -144,6 +144,10 @@ body {
   text-decoration: none;
 }
 
+.device-bar-home:hover {
+  text-decoration: underline;
+}
+
 .github-link {
   display: flex;
   align-items: center;
