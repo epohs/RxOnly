@@ -88,6 +88,7 @@
     // Breadcrumb reveal state (mobile scroll-up detection)
     breadcrumb_last_scroll_y: 0,
     breadcrumb_scroll_up_distance: 0,
+    breadcrumb_scroll_down_distance: 0,
     breadcrumb_is_sticky: false,
   };
 
@@ -506,24 +507,38 @@
     // At top of page: reset everything, remove sticky immediately
     if (current_y <= 0) {
       app_state.breadcrumb_scroll_up_distance = 0;
+      app_state.breadcrumb_scroll_down_distance = 0;
       app_state.breadcrumb_is_sticky = false;
       dom_elements.body.classList.remove("breadcrumbs-sticky", "breadcrumbs-hiding");
       app_state.breadcrumb_last_scroll_y = current_y;
       return;
     }
 
-    // Scrolling down: reset upward distance, slide breadcrumb up (hide)
+    // Scrolling down
     if (delta > 0) {
-      app_state.breadcrumb_scroll_up_distance = 0;
+      // If breadcrumbs are visible, accumulate downward distance
       if (app_state.breadcrumb_is_sticky) {
-        app_state.breadcrumb_is_sticky = false;
-        // Add hiding class to animate slide-up, keep sticky for positioning
-        dom_elements.body.classList.add("breadcrumbs-hiding");
+        app_state.breadcrumb_scroll_down_distance += delta;
+        app_state.breadcrumb_scroll_up_distance = 0;
+    
+        if (app_state.breadcrumb_scroll_down_distance >= BREADCRUMB_REVEAL_THRESHOLD) {
+          app_state.breadcrumb_scroll_down_distance = 0;
+          app_state.breadcrumb_is_sticky = false;
+          dom_elements.body.classList.add("breadcrumbs-hiding");
+        }
+      }
+      // If breadcrumbs are already hidden, reset counters and do nothing
+      else {
+        app_state.breadcrumb_scroll_up_distance = 0;
+        app_state.breadcrumb_scroll_down_distance = 0;
       }
     }
+
     // Scrolling up: accumulate distance
     else if (delta < 0) {
       app_state.breadcrumb_scroll_up_distance += Math.abs(delta);
+      app_state.breadcrumb_scroll_down_distance = 0;
+
 
       // Only reveal after crossing threshold (applies to both first-time and re-reveal)
       if (app_state.breadcrumb_scroll_up_distance >= BREADCRUMB_REVEAL_THRESHOLD) {
