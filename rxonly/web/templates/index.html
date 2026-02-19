@@ -15,10 +15,10 @@
   <link rel="manifest" href="{{ url_for('static', filename='img/manifest.json') }}">
   <meta name="theme-color" content="#4DE185">
 
-  {% if debug %}  
+  {% if debug or not css_filename %}
   <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/rxonly.css') }}">
   {% else %}
-  <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/rxonly-MQI3QDNV.min.css') }}">
+  <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename=css_filename) }}">
   {% endif %}
 
 </head>
@@ -132,13 +132,13 @@
   {% include "partials/message_detail.html" %}
 
 
-  {% if debug %}
+  {% if debug or not js_filename %}
   <script src="{{ url_for('static', filename='js/rxonly.js') }}"></script>
   <script src="{{ url_for('static', filename='js/messages.js') }}"></script>
   <script src="{{ url_for('static', filename='js/nodes.js') }}"></script>
   <script src="{{ url_for('static', filename='js/views.js') }}"></script>
   {% else %}
-  <script src="{{ url_for('static', filename='js/rxonly-7EP7CFPP.min.js') }}"></script>
+  <script src="{{ url_for('static', filename=js_filename) }}"></script>
   {% endif %}
   
 </body>

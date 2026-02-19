@@ -149,6 +149,15 @@ def index() -> str:
     cur.execute("SELECT COUNT(*) AS count FROM channels")
     total_channels: int = cur.fetchone()["count"]
 
+    # Get minified asset filenames for cache-busted includes
+    cur.execute("SELECT value FROM meta WHERE key = 'css_filename'")
+    css_row = cur.fetchone()
+    css_filename: Optional[str] = css_row["value"] if css_row else None
+
+    cur.execute("SELECT value FROM meta WHERE key = 'js_filename'")
+    js_row = cur.fetchone()
+    js_filename: Optional[str] = js_row["value"] if js_row else None
+
   finally:
     conn.close()
 
@@ -167,4 +176,6 @@ def index() -> str:
     total_messages=total_messages,
     total_channels=total_channels,
     debug=Config.get("DEBUG", False),
+    css_filename=css_filename,
+    js_filename=js_filename,
   )
