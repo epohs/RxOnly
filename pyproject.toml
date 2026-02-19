@@ -18,5 +18,7 @@ dependencies = [
     "gunicorn>=25.0.3",
     "meshtastic",
     "pubsub",
+    "rcssmin>=1.2.2",
+    "rjsmin>=1.2.5",
     "sqlite-utils",
 ]
