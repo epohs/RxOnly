@@ -20,7 +20,6 @@ This project is built for personal use and experimentation, prioritizing clarity
 > **ALSO:** Do not expose private channels or DMs that are assumed to be private to the public internet. That’s not cool, and it is **not** what this project is intended for. Private channels are private for a reason.
 
 
-| | | |
 |:--:|:--:|:--:|
 | [![Dashboard dark](rxonly/web/static/img/screenshot-01.png)](rxonly/web/static/img/screenshot-01.png) | [![Dashboard light](rxonly/web/static/img/screenshot-02.png)](rxonly/web/static/img/screenshot-02.png) | [![Messages light](rxonly/web/static/img/screenshot-03.png)](rxonly/web/static/img/screenshot-03.png) |
 | <sub>Dashboard in dark mode</sub> | <sub>Dashboard in light mode</sub> | <sub>Messages with tapbacks</sub> |
