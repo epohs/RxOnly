@@ -9,7 +9,7 @@ This script:
 - Removes previous hashed builds
 
 Used during development to ensure cache busting and a single 
-authoritative asset versions.
+authoritative asset version.
 """
 
 
