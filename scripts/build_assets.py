@@ -1,3 +1,18 @@
+#!/usr/bin/env python3
+"""
+Build script for minified frontend assets.
+
+This script:
+- Minifies CSS and JavaScript sources under rxonly/web/static
+- Generates content-hashed filenames (rxonly-<HASH>.min.{css,js})
+- Stores the active asset paths in the application meta table
+- Removes previous hashed builds
+
+Used during development to ensure cache busting and a single 
+authoritative asset versions.
+"""
+
+
 from __future__ import annotations
 
 import hashlib
