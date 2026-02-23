@@ -113,6 +113,12 @@ class MeshtasticCollector:
     # TEXT_MESSAGE_APP may not always have a reliable portnum
     text = decoded.get("text")
     if text:
+      # Ensure the sender has a node record before storing the message.
+      # If the node isn't in our DB yet, pull their identity from the
+      # meshtastic interface's node cache (populated from prior NODEINFO_APP
+      # packets received by the device, even ones we never saw directly).
+      if not self.storage.get_node(from_node_id):
+        self._seed_node_from_interface(from_node_id)
       self._handle_text_message(packet, from_node_id)
       return
 
@@ -272,6 +278,38 @@ class MeshtasticCollector:
       logging.info("Node %s updated: %s", node_id, changed)
     else:
       logging.debug("Skip: %s (no changes)", node_id)
+
+
+
+
+  def _seed_node_from_interface(self, from_node_id: str) -> None:
+    """
+    If a message arrives from a node not yet in our DB, check the meshtastic
+    interface's internal node cache. The device may have received a NODEINFO_APP
+    for this node previously (even before our collector started), so its identity
+    is available there even though we never processed that packet ourselves.
+    """
+    if not self.interface or not self.interface.nodes:
+      return
+
+    node_data = self.interface.nodes.get(from_node_id)
+    if not node_data:
+      return
+
+    user = node_data.get("user", {})
+    has_identity = bool(
+      user.get("longName")
+      or user.get("shortName")
+      or user.get("hwModel")
+    )
+    if not has_identity:
+      return
+
+    logging.debug(
+      "Seeding unknown node %s from interface cache before saving message",
+      from_node_id,
+    )
+    self._on_node_update(node_data, from_initial_sync=True)
 
 
 
