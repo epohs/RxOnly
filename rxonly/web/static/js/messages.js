@@ -598,7 +598,7 @@
         }
 
       } else {
-        // No last-read: fresh load (newest messages)
+        // No last-read: fresh load (oldest messages first)
         await render_messages_fresh(is_dm, channel_index, heading_text);
       }
 
@@ -612,10 +612,12 @@
    * Fresh load: no last-read position, show the newest messages.
    */
   async function render_messages_fresh(is_dm, channel_index, heading_text) {
+    // No last-read position: load from the oldest messages so the user
+    // can read the channel from the beginning. Nothing is pre-marked as read;
+    // the user marks messages read by scrolling past the threshold.
     var data = await R.fetch_message_page({
       is_dm: is_dm,
       channel_index: channel_index,
-      newest: true,
     });
     var messages = is_dm ? data.direct_messages : data.messages;
 
@@ -632,26 +634,8 @@
 
     R.update_message_cursors(data, is_dm);
     render_messages_dom(heading_text, messages, is_dm);
-
-    // For a fresh load, all messages are visible = read. Mark them and
-    // save the newest as last-read so the next visit resumes from here.
-    var messages_ul = document.getElementById("messages-list");
-    if (messages_ul) {
-      var items = messages_ul.querySelectorAll("li[data-message-id]");
-      for (var i = 0; i < items.length; i++) {
-        R.mark_message_read(items[i]);
-      }
-    }
-
-    if (messages.length > 0) {
-      var newest_msg = messages[messages.length - 1];
-      R.set_last_read(is_dm, channel_index, newest_msg.message_id, newest_msg.rx_time);
-    }
-
-    // Scroll to bottom for fresh load
-    if (messages_ul) {
-      messages_ul.scrollTop = messages_ul.scrollHeight;
-    }
+    // Scroll position is left at the top; "Jump to newest" button will appear
+    // automatically if there are newer pages (messages_has_more_newer = true).
   }
 
   /**
