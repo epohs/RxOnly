@@ -585,7 +585,7 @@
         }
 
         // Restore saved scroll position if returning to the same channel,
-        // otherwise scroll to the last-read message.
+        // otherwise position the first unread message at the read threshold.
         var saved_scroll = R.consume_saved_scroll_position(is_dm, channel_index);
         if (saved_scroll !== null && messages_ul) {
           if (saved_scroll.is_mobile) {
@@ -594,7 +594,7 @@
             messages_ul.scrollTop = saved_scroll.scroll_top;
           }
         } else {
-          scroll_to_last_read(last_read.message_id);
+          scroll_to_first_unread_at_threshold();
         }
 
       } else {
@@ -655,22 +655,44 @@
   }
 
   /**
-   * Scroll the messages list so that the last-read message appears
-   * at the top of the visible area.
-   * @param {number} message_id - The message_id of the last-read message
+   * Scroll the messages list so that the first unread message appears
+   * at the read threshold line (1/3 up from the bottom of the visible area).
+   * This lets the user see some unread messages immediately on return,
+   * matching the same position where messages will be marked as read.
+   *
+   * Falls back to the last message if all messages are already read.
    */
-  function scroll_to_last_read(message_id) {
+  function scroll_to_first_unread_at_threshold() {
     var messages_list = document.getElementById("messages-list");
     if (!messages_list) return;
 
-    var target_li = messages_list.querySelector(
-      'li[data-message-id="' + message_id + '"]'
-    );
+    var all_items = messages_list.querySelectorAll("li[data-message-id]");
+    if (all_items.length === 0) return;
 
-    if (target_li) {
-      // scrollIntoView with block: "start" puts the element at the top
-      // of the scrollable container
-      target_li.scrollIntoView({ block: "start" });
+    // Find the first item not yet marked read
+    var target = null;
+    for (var i = 0; i < all_items.length; i++) {
+      if (!all_items[i].classList.contains("message-read")) {
+        target = all_items[i];
+        break;
+      }
+    }
+
+    // Fall back to the last item if everything is already read
+    if (!target) {
+      target = all_items[all_items.length - 1];
+    }
+
+    var is_mobile = getComputedStyle(messages_list).overflowY === "visible";
+    var ratio = R.config.read_threshold_ratio;
+
+    if (is_mobile) {
+      // offsetTop is relative to the document on mobile
+      var scroll_top = target.offsetTop - window.innerHeight * (1 - ratio);
+      window.scrollTo(0, Math.max(0, scroll_top));
+    } else {
+      var scroll_top = target.offsetTop - messages_list.clientHeight * (1 - ratio);
+      messages_list.scrollTop = Math.max(0, scroll_top);
     }
   }
 

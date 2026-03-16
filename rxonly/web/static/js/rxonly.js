@@ -23,6 +23,7 @@
     scroll_debounce_delay: 2000,  // 2 seconds after scroll stops
     max_poll_failures: 3,         // Show error after this many failures
     search_debounce_delay: 300,   // 300ms debounce for search
+    read_threshold_ratio: 0.33,   // fraction of visible container height from bottom
   };
 
 
@@ -621,14 +622,20 @@
     if (!messages_list) return;
 
     var container_rect = messages_list.getBoundingClientRect();
-    var bottom_y = container_rect.bottom;
+
+    // Use the lesser of the container bottom and the viewport bottom so that
+    // this works correctly on both desktop (container scrolls internally) and
+    // mobile (container overflows, window scrolls).
+    var effective_bottom = Math.min(container_rect.bottom, window.innerHeight);
+    var visible_height = effective_bottom - container_rect.top;
+    var bottom_y = effective_bottom - (visible_height * config.read_threshold_ratio);
 
     var items = messages_list.querySelectorAll("li[data-message-id]");
     var last_read_item = null;
 
     for (var i = 0; i < items.length; i++) {
       var item_rect = items[i].getBoundingClientRect();
-      // Message is "read" if its top is above the bottom of the visible area
+      // Message is "read" if its top is above the read threshold line
       if (item_rect.top < bottom_y) {
         last_read_item = items[i];
         // Mark as read in the DOM
@@ -646,6 +653,40 @@
         // Only update if this message is newer than the stored one
         if (!current || rx_time > current.rx_time || (rx_time === current.rx_time && msg_id > current.message_id)) {
           set_last_read(app_state.messages_is_dm, app_state.current_channel_index, msg_id, rx_time);
+        }
+      }
+    }
+
+    // Bottom grace: when there are no newer messages to load and the user has
+    // scrolled to within 16vh of the absolute end of the list, mark everything
+    // as read. This handles the case where the last few messages can never
+    // reach the threshold because there is nothing to scroll past.
+    if (!app_state.messages_has_more_newer) {
+      var is_mobile = getComputedStyle(messages_list).overflowY === "visible";
+      var scroll_bottom_gap;
+      if (is_mobile) {
+        scroll_bottom_gap = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
+      } else {
+        scroll_bottom_gap = messages_list.scrollHeight - (messages_list.scrollTop + messages_list.clientHeight);
+      }
+
+      if (scroll_bottom_gap <= window.innerHeight * 0.16) {
+        var all_items = messages_list.querySelectorAll("li[data-message-id]");
+        var newest_item = null;
+        for (var j = 0; j < all_items.length; j++) {
+          mark_message_read(all_items[j]);
+          newest_item = all_items[j];
+        }
+        if (newest_item) {
+          var newest_id = parseInt(newest_item.dataset.messageId, 10);
+          var newest_rx_time = parseInt(newest_item.dataset.rxTime || "0", 10);
+          if (newest_id && newest_rx_time) {
+            var stored = get_last_read(app_state.messages_is_dm, app_state.current_channel_index);
+            if (!stored || newest_rx_time > stored.rx_time ||
+                (newest_rx_time === stored.rx_time && newest_id > stored.message_id)) {
+              set_last_read(app_state.messages_is_dm, app_state.current_channel_index, newest_id, newest_rx_time);
+            }
+          }
         }
       }
     }
