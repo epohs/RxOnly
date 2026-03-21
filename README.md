@@ -79,7 +79,7 @@ python scripts/run_collector.py
 
 The database will be created and migrated automatically if needed. Nodes and messages will be written to the database as long as this script is running.
 
-> **NOTE:** If you pull the repo and the database schema ([`schema.sql`](/rxonly/db/schema.sql)) version changes your database will be dropped and recreated, wiping all existing data.
+> [!WARNING] If you pull the repo and the database schema ([`schema.sql`](/rxonly/db/schema.sql)) version changes your database will be dropped and recreated, wiping all existing data.
 
 ### Running the Web App (Flask)
 
