@@ -48,6 +48,7 @@ cd RxOnly
 A single virtual environment is used for both the collector and the web app.
 
 ```
+# Create environment
 uv init
 # Install dependencies
 uv sync
