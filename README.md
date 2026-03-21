@@ -9,7 +9,7 @@ The application is intended to be lightweight, low-dependency, and security focu
 
 This project is built for personal use and experimentation, prioritizing clarity, safety, and ease of maintenance over features.
 
-> **IMPORTANT**
+> [!IMPORTANT]
 >
 > While I’ve made a conscious effort to keep this project as secure as possible, there is still real risk involved in exposing any service on a home network to the public internet.
 >
