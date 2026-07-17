@@ -22,27 +22,13 @@ server {
     add_header Strict-Transport-Security "max-age=86400" always;
 
     # Restrict where content can be loaded from (prevents XSS and injection)
-    add_header Content-Security-Policy "
-    default-src 'self';
-    img-src 'self';
-    script-src 'self';
-    style-src 'self' 'unsafe-inline';
-    object-src 'none';
-    base-uri 'self';
-    frame-ancestors 'none';
-    " always;
+    # NOTE: The header value must stay on a single line. Literal newlines in a
+    # header value are rejected over HTTP/2 (Chrome: ERR_HTTP2_PROTOCOL_ERROR).
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" always;
 
     # Disable access to browser features and sensors
-    add_header Permissions-Policy "
-    accelerometer=(),
-    camera=(),
-    geolocation=(),
-    gyroscope=(),
-    magnetometer=(),
-    microphone=(),
-    payment=(),
-    usb=()
-    " always;
+    # NOTE: Single line only — same HTTP/2 restriction as above.
+    add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
 
     location = /favicon.ico {
         alias /path/to/RxOnly/rxonly/web/static/img/favicon.ico;
