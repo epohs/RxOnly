@@ -1,0 +1,67 @@
+# Gunicorn configuration file for RxOnly
+#
+# This file defines runtime settings for Gunicorn when serving the RxOnly
+# Flask application behind nginx. It is intentionally optional: Gunicorn
+# will only use this file if explicitly started with `--config gunicorn.conf.py`.
+#
+# Using a Gunicorn config file allows application-level tuning (workers,
+# timeouts, logging) to live alongside the project instead of being embedded
+# in systemd unit files.
+#
+
+# ---------------------------------------------------------------------------
+# Networking
+# ---------------------------------------------------------------------------
+
+# Bind to localhost only; nginx is responsible for handling external traffic
+bind = "127.0.0.1:8000"
+
+# ---------------------------------------------------------------------------
+# Worker configuration
+# ---------------------------------------------------------------------------
+
+# Number of worker processes
+# A common recommendation is: (2 * CPU cores) + 1
+workers = 2
+
+# Worker type:
+#   "sync"      - simple, predictable, good default
+#   "gevent"    - async, requires monkey-patching
+#   "eventlet"  - async, similar caveats
+worker_class = "sync"
+
+# Threads per worker (used only by some worker classes)
+threads = 2
+
+# ---------------------------------------------------------------------------
+# Timeouts
+# ---------------------------------------------------------------------------
+
+# Maximum time a worker can take to respond before being killed
+timeout = 30
+
+# Keep-alive duration for persistent client connections
+keepalive = 5
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+accesslog = "/var/log/rxonly/gunicorn.access.log"
+errorlog  = "/var/log/rxonly/gunicorn.error.log"
+loglevel  = "info"
+
+# ---------------------------------------------------------------------------
+# Process metadata
+# ---------------------------------------------------------------------------
+
+# Process name shown in tools like ps and top
+proc_name = "rxonly-www"
+
+# ---------------------------------------------------------------------------
+# Basic request hardening
+# ---------------------------------------------------------------------------
+
+limit_request_line       = 4094
+limit_request_fields     = 100
+limit_request_field_size = 8190

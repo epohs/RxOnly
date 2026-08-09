@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+
+# Settings are grouped by which process owns them. This project presents the
+# archive and never writes it, so it carries only what a reader needs: anything
+# describing how the archive is collected belongs to mesh-collector, and a
+# setting absent from this surface cannot be set here from any source.
+#
+# What the collector keeps — retention limits, tracked channels, whether direct
+# messages are archived at all — is read from the meta table at runtime, not
+# configured here. See mesh-collector's schema.sql for the published keys.
+
+# Needed by anything that opens the archive.
+#
+# DB_PATH has no default, and that is the honest answer rather than a missing one.
+# mesh-collector writes the archive inside its own checkout, so the file this
+# project reads lives in a directory belonging to a different project, on a path
+# only this install knows. Before the split "data/db.sqlite" was right because
+# this repo created that database itself; now anything sitting there would be a
+# stale copy while the collector wrote elsewhere. Unset, startup says "tell me
+# where it is" and stops.
+SHARED_CONFIG = {
+  "DEBUG": False,                     # Enable verbose logging and disable css/js minification
+  "DB_PATH": "",                      # Absolute path to mesh-collector's SqLite archive
+}
+
+# Presenting the archive. Owned by the web app; mesh-console will own its own.
+WEB_CONFIG = {
+  "SERVE_DIRECT_MESSAGES": False,     # Should the web app expose archived direct messages
+}
+
+WEB_SETTINGS = {**SHARED_CONFIG, **WEB_CONFIG}
+
+CONFIG_FILE_PATH = Path(__file__).parent / "config.json"
+SAMPLE_CONFIG_FILE_PATH = Path(__file__).parent / "config-sample.json"
+
+# Environment variable names are prefixed per process, so co-hosted processes
+# don't share one namespace: the web app reads RXONLY_DB_PATH, the collector
+# reads MESH_COLLECTOR_DB_PATH. Keys in config.json stay unprefixed.
+DEFAULT_ENV_PREFIX = "RXONLY_"
+
+
+
+
+class Config:
+  """
+  Central configuration loader.
+  Priority: environment variables > config.json > defaults.
+  """
+
+  values: dict[str, Any] = {}
+  env_prefix: str = DEFAULT_ENV_PREFIX
+  _loaded: bool = False
+
+
+
+
+  @classmethod
+  def load(
+    cls,
+    env_prefix: str = DEFAULT_ENV_PREFIX,
+    settings: dict[str, Any] = WEB_SETTINGS,
+  ) -> None:
+    """Load configuration values. Only runs once.
+
+    A setting exported or written for a co-hosted process — the collector's
+    SERIAL_PORT, say — can neither be read by nor reconfigure this one. Keys
+    outside the surface are ignored, wherever they came from.
+    """
+    if cls._loaded:
+      return
+
+    cls.env_prefix = env_prefix
+    cls.values = settings.copy()
+
+    if CONFIG_FILE_PATH.exists():
+      try:
+        with open(CONFIG_FILE_PATH, "r") as f:
+          file_config = json.load(f)
+        for key, value in file_config.items():
+          if key not in settings:
+            continue
+          if not cls._matches_default_type(value, settings[key]):
+            # Keeping the default fails closed; coercing would let the *string*
+            # "false" turn SERVE_DIRECT_MESSAGES on, because any non-empty
+            # string is truthy.
+            print(
+              f"Warning: config.json {key}={value!r} is not a "
+              f"{type(settings[key]).__name__}; keeping the default {settings[key]!r}"
+            )
+            continue
+          cls.values[key] = value
+      except Exception as e:
+        print(f"Warning: Failed to read {CONFIG_FILE_PATH}: {e}")
+
+    for key, default_val in settings.items():
+      env_key = f"{cls.env_prefix}{key}"
+      env_val = os.getenv(env_key)
+      if env_val is not None:
+        try:
+          cls.values[key] = cls._cast_env_value(env_val, default_val)
+        except Exception:
+          print(f"Warning: Could not cast environment variable {env_key}='{env_val}'")
+
+    cls._loaded = True
+
+
+
+
+  @classmethod
+  def get(cls, key: str, default: Any = None) -> Any:
+    """Retrieve a config value by key."""
+    if not cls._loaded:
+      cls.load()
+    return cls.values.get(key, default)
+
+
+
+
+  @staticmethod
+  def _matches_default_type(value: Any, default_val: Any) -> bool:
+    """Whether a config.json value has the type its default establishes.
+
+    None passes: JSON null means "explicitly unset", and a None value fails
+    closed wherever it is read. bool is checked before int because it is a
+    subclass of it, in both directions: True is not a count, and 1 is not an
+    authorization.
+    """
+    if value is None:
+      return True
+    if isinstance(default_val, bool):
+      return isinstance(value, bool)
+    if isinstance(default_val, int):
+      return isinstance(value, int) and not isinstance(value, bool)
+    if isinstance(default_val, float):
+      return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(default_val, list):
+      # Integer lists: every element an int, and not a bool pretending.
+      return isinstance(value, list) and all(
+        isinstance(item, int) and not isinstance(item, bool) for item in value
+      )
+    if isinstance(default_val, str):
+      return isinstance(value, str)
+    return True
+
+
+
+
+  @staticmethod
+  def _cast_env_value(env_val: str, default_val: Any) -> Any:
+    """Cast environment variable string to the type of default_val."""
+    if isinstance(default_val, bool):
+      return env_val.lower() in ("true", "1", "yes")
+    if isinstance(default_val, int):
+      return int(env_val)
+    if isinstance(default_val, float):
+      return float(env_val)
+    if isinstance(default_val, list):
+      # Integer lists arrive comma-separated: "0,2,3"
+      return [int(part) for part in env_val.split(",") if part.strip()]
+    return env_val
