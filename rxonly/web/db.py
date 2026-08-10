@@ -32,6 +32,48 @@ REQUIRED_SCHEMA = "0.8.0"
 
 
 
+# "The mesh has told us a name for this node", and the one place it is written.
+#
+# Names and nothing else. A node can report a hardware model and no name at all, so
+# testing `hardware` would keep rows this is meant to hide; and a `long_name` of
+# 'Meshtastic 18b7' is a real name that unconfigured firmware genuinely announces,
+# not a fabricated one. Unnamed is `long_name IS NULL AND short_name IS NULL`, and
+# this is its negation. mesh-console spells the same predicate the same way in its
+# db/queries.py — a deliberate reimplementation, as both readers' node queries are.
+_NAMED_NODE = "(long_name IS NOT NULL OR short_name IS NOT NULL)"
+
+
+
+
+def node_where(*conditions: str) -> str:
+  """A WHERE clause for a node *list*, honouring LIST_UNNAMED_NODES.
+
+  Returns "" only when there is nothing at all to restrict — no caller condition
+  and the reader has asked to see unnamed nodes.
+
+  Every discovery surface builds its clause here so the count cannot disagree with
+  the list it counts: `/api/nodes` totals its own page, the dashboard totals the
+  first page it renders, and `/api/stats` totals the sidebar. A filtered list
+  beside an unfiltered total is the bug this exists to make hard to write.
+
+  Conditions are ANDed, so a caller passing an OR chain must parenthesise it — the
+  search clause in routes/api/nodes.py does. **This is for lists only.** Resolving a
+  node by the id it is addressed by ignores the flag entirely and so must not call
+  this: see `WEB_CONFIG` in rxonly/config.py for why that distinction is the point.
+  """
+  clauses = [condition for condition in conditions if condition]
+
+  if not Config.get("LIST_UNNAMED_NODES", False):
+    clauses.append(_NAMED_NODE)
+
+  if not clauses:
+    return ""
+
+  return "WHERE " + " AND ".join(clauses)
+
+
+
+
 class SchemaVersionMismatch(RuntimeError):
   """Raised when the archive's schema isn't one this code can read."""
 

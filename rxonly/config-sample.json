@@ -2,5 +2,6 @@
     "DEBUG": false,
     "DB_PATH": "/home/pi/mesh-collector/data/db.sqlite",
 
-    "SERVE_DIRECT_MESSAGES": false
+    "SERVE_DIRECT_MESSAGES": false,
+    "LIST_UNNAMED_NODES": false
 }

@@ -5,7 +5,7 @@ from flask import Blueprint, render_template
 
 from rxonly.config import Config
 from rxonly.web.assets import CSS_KEY, JS_KEY, read_manifest
-from rxonly.web.db import get_db_connection, get_meta
+from rxonly.web.db import get_db_connection, get_meta, node_where
 
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -113,8 +113,14 @@ def index() -> str:
       total_direct_messages: int = 0
 
     # Fetch nodes (initial page)
+    #
+    # Filtered by the same clause /api/nodes uses, because this is the same list:
+    # the server renders its first page and the API pages it from there. An
+    # unfiltered first page would show unnamed nodes until the reader scrolled,
+    # at which point they would stop appearing.
+    node_list_where: str = node_where()
     cur.execute(
-      """
+      f"""
       -- No telemetry columns here, on purpose. This page renders a node as a name
       -- and a timestamp; everything else about it arrives through /api/nodes when
       -- the detail pane opens, which is the query that selects the 0.8.0 columns.
@@ -123,14 +129,16 @@ def index() -> str:
              last_seen, battery_level, voltage, snr, rssi,
              latitude, longitude, altitude
       FROM nodes
+      {node_list_where}
       ORDER BY last_seen DESC
       LIMIT 50
       """
     )
     nodes: list[dict[str, Any]] = [dict(row) for row in cur.fetchall()]
 
-    # Get total node count for pagination info
-    cur.execute("SELECT COUNT(*) AS count FROM nodes")
+    # Get total node count for pagination info — the same clause again, so the
+    # number the page pages towards is the number of rows it can reach.
+    cur.execute(f"SELECT COUNT(*) AS count FROM nodes {node_list_where}")
     total_nodes: int = cur.fetchone()["count"]
 
     # Get total message count for dashboard stats

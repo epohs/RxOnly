@@ -5,7 +5,7 @@ from flask import Response
 
 from rxonly.config import Config
 from rxonly.web.routes.api import api_bp
-from rxonly.web.db import get_db_connection, get_meta
+from rxonly.web.db import get_db_connection, get_meta, node_where
 
 
 @api_bp.route("/stats", methods=["GET"])
@@ -38,8 +38,14 @@ def get_stats() -> Response:
         # Node not in nodes table yet, return minimal info
         local_node = {"node_id": local_node_id}
 
-    # Count totals
-    cur.execute("SELECT COUNT(*) AS count FROM nodes")
+    # Count totals.
+    #
+    # The node count follows the node list: this number is what the sidebar heading
+    # reports, so counting rows the list will not show would make `Nodes (84)` name
+    # a set the reader cannot page to the end of. The local node above is resolved
+    # by id and is deliberately not filtered — the attached device is reported
+    # whether or not it has been given a name.
+    cur.execute(f"SELECT COUNT(*) AS count FROM nodes {node_where()}")
     total_nodes: int = cur.fetchone()["count"]
 
     cur.execute("SELECT COUNT(*) AS count FROM messages")

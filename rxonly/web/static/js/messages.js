@@ -313,10 +313,16 @@
     if (!clone) return null;
 
     // Set node link attributes or convert to span for unknown nodes
+    //
+    // "Unknown" means there is no sender id to link to, and nothing else. It used
+    // to also require a name, from when a node the mesh had never named had no row
+    // in the archive and so no page to open — that stopped being true when unnamed
+    // nodes started being archived, and the test outlived the reason for it. A
+    // nameless sender's page resolves by id and reports what is known about it,
+    // which for a beacon heard once is the point of following the link at all.
     var from_link = clone.querySelector(".message-from");
     if (from_link) {
-      var has_known_name = message.from_node_long_name || message.from_node_short_name;
-      if (has_known_name && message.from_node) {
+      if (message.from_node) {
         from_link.href = R.build_node_url(message.from_node);
         from_link.dataset.nodeId = message.from_node;
       } else {

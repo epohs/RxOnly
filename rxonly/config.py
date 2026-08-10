@@ -30,8 +30,17 @@ SHARED_CONFIG = {
 }
 
 # Presenting the archive. Owned by the web app; mesh-console will own its own.
+#
+# LIST_UNNAMED_NODES is deliberately not SERVE_UNNAMED_NODES. It gates *discovery*
+# — the node list, the counts beside it, and search — and never *resolution*: a
+# node fetched by the id it is addressed by still answers, whatever this says. A
+# SERVE_ name would claim otherwise, and the detail endpoint 404ing is precisely
+# what must not happen, since a message from a node the mesh has never named still
+# links to that node's page. Off by default because a nameless node is usually a
+# beacon or a tracker rather than something a reader was looking for.
 WEB_CONFIG = {
   "SERVE_DIRECT_MESSAGES": False,     # Should the web app expose archived direct messages
+  "LIST_UNNAMED_NODES": False,        # Should nodes with no name appear in node lists
 }
 
 WEB_SETTINGS = {**SHARED_CONFIG, **WEB_CONFIG}
