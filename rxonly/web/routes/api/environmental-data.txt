@@ -1,0 +1,2 @@
+temperature, humidity, pressure,
+channel_util, air_util_tx, uptime_seconds

@@ -414,6 +414,7 @@
       "role": { selector: "[data-field='role']" },
       "first_seen": { selector: "[data-field='first-seen']", format: format_timestamp },
       "last_seen": { selector: "[data-field='last-seen']", format: format_timestamp },
+      "hops_away": { selector: "[data-field='hops-away']" },
       "battery_level": { selector: "[data-field='battery']", format: function(v) { return v + "%"; } },
       "voltage": { selector: "[data-field='voltage']", format: function(v) { return v + "V"; } },
       "snr": { selector: "[data-field='snr']" },

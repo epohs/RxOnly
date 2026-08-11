@@ -9,25 +9,13 @@ from rxonly.config import Config
 
 # The oldest schema this code can read, not the newest it has seen.
 #
-# mesh-collector owns the schema and writes the version into meta; the two
-# projects upgrade independently, so a reader has to say out loud what it needs.
-# The rule the version number follows is documented in mesh-collector's
-# schema.sql, which is the authority: a MAJOR bump breaks readers, a MINOR bump
-# only adds. So the check below accepts any archive with the same major and a
-# version at least this high, and this constant moves only when a query here
-# starts depending on something newer.
+# mesh-collector owns the schema and writes the version into meta; readers
+# upgrade independently. This value only changes when a query starts depending
+# on something introduced by a newer schema version. See mesh-collector's
+# schema.sql for the versioning rules.
 #
-# 0.8.0, because routes/api/nodes.py and routes/dashboard.py select the six
-# telemetry columns 0.8.0 added. This sat at 0.6.0 for a long time and for a good
-# reason: 0.7.0 added direct_messages.to_node, nothing here selected it, and a
-# reader that has not started reading a column has no business refusing archives
-# written before it. Reading telemetry is what ended that — the query cannot run
-# against a 0.7.0 archive, so the constant has to say so.
-#
-# Still not imported from mesh-console, which moved to 0.8.0 in the same session
-# for its own reasons. The two constants agreeing today is a coincidence of what
-# each reader happens to select, not the two being kept in step.
-REQUIRED_SCHEMA = "0.8.0"
+# 0.9.0 because routes/api/nodes.py selects hops_away, which was added in 0.9.0.
+REQUIRED_SCHEMA = "0.9.0"
 
 
 
