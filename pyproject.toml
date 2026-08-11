@@ -12,8 +12,8 @@ dependencies = [
     "flask",
     "flask-compress>=1.23",
     "gunicorn>=25.0.3",
-    "rcssmin>=1.2.2",
-    "rjsmin>=1.2.5",
+    "rcssmin==1.2.2",
+    "rjsmin==1.2.5",
 ]
 
 [project.urls]

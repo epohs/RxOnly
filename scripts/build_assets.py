@@ -119,6 +119,7 @@ def main() -> None:
 
   logging.info("Wrote %s", MANIFEST_PATH.name)
   logging.info("Asset build complete")
+  logging.info("Restart the web service to pick up the new manifest: sudo systemctl restart rxonly-www")
 
 
 
