@@ -387,9 +387,13 @@
     // as a bare 💪 from nobody in particular with no hint that it was aimed at
     // something. The note says what the reply bar cannot: the parent is gone, so
     // there is nothing to link to and no excerpt to show.
+    //
+    // Unhiding is the whole of it — the text is static in the template, where a
+    // sentence that never varies belongs, and no href or data-reply-to-id is set
+    // because neither has anything to point at.
     if (is_orphan_tapback(message)) {
-      var orphan_note = clone.querySelector(".message-orphan-note");
-      if (orphan_note) orphan_note.removeAttribute("hidden");
+      var untracked_bar = clone.querySelector(".message-reply-untracked");
+      if (untracked_bar) untracked_bar.removeAttribute("hidden");
     }
 
     // Populate reply bar for non-tapback replies with parent data

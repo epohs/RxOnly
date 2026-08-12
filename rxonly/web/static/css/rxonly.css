@@ -834,7 +834,11 @@ body:not(.no-js) .nodes-search-reveal {
   text-overflow: ellipsis;
 }
 
-.message-reply-bar:hover {
+/* `a.` rather than the bare class, because the untracked bar below also carries
+   .message-reply-bar and must not take the link treatment. The hover belongs to
+   the element that actually navigates, which is the anchor and only the anchor —
+   scoping it here is why the modifier needs no override to undo it. */
+a.message-reply-bar:hover {
   color: var(--color-link-hover);
 }
 
@@ -842,19 +846,18 @@ body:not(.no-js) .nodes-search-reveal {
   display: none;
 }
 
-/* The note on a tapback whose parent is gone from the archive. Muted and small
-   like the reply bar, because it is the same kind of aside, but plain text and
-   below the message rather than a bar above it — there is no parent to link to,
-   and dressing it as a link would promise one. */
-.message-orphan-note {
-  margin: var(--space-xs) 0 0 0;
-  font-size: 0.8em;
-  font-style: italic;
-  color: var(--color-text-muted);
-}
+/* The bar on a tapback whose parent is gone from the archive: same bar, drawn in
+   the same place, because it is the same kind of aside and the reaction did arrive
+   on top of something. What it cannot do is stand in for a quote — there is no
+   parent to excerpt and none to open — so it is italic and takes the default
+   cursor, and the asterisk in the template says the rest.
 
-.message-orphan-note[hidden] {
-  display: none;
+   Mostly a hook rather than a ruleset. The point of the class is that this case is
+   addressable at all: the two used to share nothing, and anything either the bar or
+   this note needs alone now has somewhere to go. */
+.message-reply-untracked {
+  font-style: italic;
+  cursor: default;
 }
 
 
