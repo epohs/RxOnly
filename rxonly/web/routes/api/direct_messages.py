@@ -1,10 +1,9 @@
-import json
 from typing import Any, Optional
 
 from flask import request, Response
 
 from rxonly.config import Config
-from rxonly.web.routes.api import api_bp
+from rxonly.web.routes.api import api_bp, json_response
 from rxonly.web.db import get_db_connection, get_meta_int
 
 
@@ -26,7 +25,7 @@ def get_direct_messages() -> Response:
       },
       "direct_messages": [],
     }
-    return Response(json.dumps(payload, indent=2), mimetype="application/json")
+    return json_response(payload)
 
   limit: int = request.args.get("limit", default=50, type=int)
 
@@ -133,10 +132,7 @@ def get_direct_messages() -> Response:
     "direct_messages": rows,
   }
 
-  return Response(
-    json.dumps(payload, indent=2),
-    mimetype="application/json",
-  )
+  return json_response(payload)
 
 
 @api_bp.route("/direct-messages/<int:message_id>", methods=["GET"])
@@ -144,11 +140,7 @@ def get_direct_message(message_id: int) -> Response:
   """Return a single direct message by message_id with enriched node names."""
 
   if not Config.get("SERVE_DIRECT_MESSAGES"):
-    return Response(
-      json.dumps({"error": "Direct message not found"}),
-      status=404,
-      mimetype="application/json",
-    )
+    return json_response({"error": "Direct message not found"}, status=404)
 
   conn = get_db_connection()
   try:
@@ -175,13 +167,6 @@ def get_direct_message(message_id: int) -> Response:
     conn.close()
 
   if row is None:
-    return Response(
-      json.dumps({"error": "Direct message not found"}),
-      status=404,
-      mimetype="application/json",
-    )
+    return json_response({"error": "Direct message not found"}, status=404)
 
-  return Response(
-    json.dumps(dict(row), indent=2),
-    mimetype="application/json",
-  )
+  return json_response(dict(row))

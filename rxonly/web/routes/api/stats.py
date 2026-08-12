@@ -1,10 +1,9 @@
-import json
 from typing import Any, Optional
 
 from flask import Response
 
 from rxonly.config import Config
-from rxonly.web.routes.api import api_bp
+from rxonly.web.routes.api import api_bp, json_response
 from rxonly.web.db import get_db_connection, get_meta, node_where
 
 
@@ -93,7 +92,4 @@ def get_stats() -> Response:
     "stats": stats_payload,
   }
 
-  return Response(
-    json.dumps(payload, indent=2),
-    mimetype="application/json",
-  )
+  return json_response(payload)

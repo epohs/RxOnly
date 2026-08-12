@@ -1,9 +1,8 @@
-import json
 from typing import Any, Optional
 
 from flask import request, Response
 
-from rxonly.web.routes.api import api_bp
+from rxonly.web.routes.api import api_bp, json_response
 from rxonly.web.db import get_db_connection, get_meta_int
 
 
@@ -149,10 +148,7 @@ def get_messages() -> Response:
     "messages": rows,
   }
 
-  return Response(
-    json.dumps(payload, indent=2),
-    mimetype="application/json",
-  )
+  return json_response(payload)
 
 
 @api_bp.route("/messages/<int:message_id>", methods=["GET"])
@@ -187,13 +183,6 @@ def get_message(message_id: int) -> Response:
     conn.close()
 
   if row is None:
-    return Response(
-      json.dumps({"error": "Message not found"}),
-      status=404,
-      mimetype="application/json",
-    )
+    return json_response({"error": "Message not found"}, status=404)
 
-  return Response(
-    json.dumps(dict(row), indent=2),
-    mimetype="application/json",
-  )
+  return json_response(dict(row))

@@ -1,0 +1,83 @@
+# Log rotation for RxOnly's Gunicorn logs
+#
+# Install as /etc/logrotate.d/rxonly, owned by root and mode 644 — logrotate
+# refuses a file in that directory that is group- or world-writable, and says so
+# only if you ask it to run verbosely. Change YOURUSERNAME below to the account
+# `User=` names in rxonly-www.service.
+#
+# This exists because nothing was rotating these. gunicorn.access.log on the Pi
+# reached 28 MB over about six months of a line per poll per open tab, on a card
+# where that is real space, and it holds nothing nginx is not already recording —
+# nginx sits in front of Gunicorn, so every request appears in both logs. The
+# access log is kept anyway rather than switched off: it is the only record that
+# survives nginx being reconfigured or replaced, and Gunicorn's own account of
+# what it was asked for is worth a couple of megabytes now that a couple of
+# megabytes is all it is.
+#
+# Not needed at all if Gunicorn is started without --config. The systemd unit
+# shipped here does exactly that, so its output goes to the journal and journald
+# rotates it on its own terms. This is for the deployment that took the
+# gunicorn.conf.py path and therefore has two real files growing unbounded.
+
+/var/log/rxonly/*.log {
+    # Weekly rather than daily. The access log is one line per request and the
+    # error log is nearly silent, so daily rotation on a quiet site mostly
+    # produces empty archives.
+    weekly
+
+    # maxsize, not size or minsize, and the three are easy to confuse: `size`
+    # rotates on bytes and ignores the schedule entirely, `minsize` rotates on
+    # the schedule but only once the file is big enough, and this one rotates on
+    # the schedule *or* sooner if the file gets large. That is the behaviour
+    # wanted here — the weekly pass is for the normal case, and this is for the
+    # week a scraper finds the site.
+    maxsize 5M
+
+    # Eight rotations, which at the volume that produced the 28 MB file is a
+    # couple of megabytes compressed: enough history to look back over an outage
+    # or a crawler, bounded enough to stop thinking about.
+    rotate 8
+
+    # Both together: compress everything except the most recent rotation, so the
+    # last one can still be grepped directly while the older ones cost almost
+    # nothing.
+    compress
+    delaycompress
+
+    # Rotate whichever of the two logs exists and do not fail over the other —
+    # also what makes this safe to install before the service has ever run.
+    missingok
+    notifempty
+
+    # Recreated immediately, with the ownership Gunicorn needs: the master opens
+    # these by path at startup and has no way to create them again once a
+    # rotation has renamed them out from under it. Group adm is the Debian
+    # convention for a log a human may want to read; only the owner writes.
+    create 0640 YOURUSERNAME adm
+
+    # Once per rotation cycle rather than once per file, which is what
+    # `sharedscripts` means and why it is here: one USR1 makes Gunicorn reopen
+    # every log it has, so running the script again for the second file would
+    # signal for nothing.
+    sharedscripts
+
+    # **This is the line that makes the rest of it work.** Without a reopen,
+    # Gunicorn goes on writing to the inode that was rotated away — the archive
+    # keeps growing under its new name, the fresh file stays empty forever, and
+    # the config appears to be working. SIGUSR1 is exactly the signal for it:
+    # `Arbiter.handle_usr1` reopens its own files and forwards the signal to
+    # every worker, each of which reopens too, and gunicorn sets
+    # `siginterrupt(SIGUSR1, False)` so an in-flight request is not disturbed.
+    # Checked against the installed Gunicorn rather than assumed.
+    #
+    # Asked of systemd because the unit here writes no pidfile. Sent to the whole
+    # unit rather than `--kill-whom=main`, partly because the workers handle it
+    # harmlessly and partly because that option was spelled `--kill-who` before
+    # systemd 250 and this should not depend on which. Guarded, so a rotation
+    # cannot fail merely because the service is stopped.
+    postrotate
+        if systemctl is-active --quiet rxonly-www; then
+            systemctl kill -s USR1 rxonly-www 2>/dev/null || true
+        fi
+    endscript
+}

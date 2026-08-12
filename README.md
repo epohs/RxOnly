@@ -140,12 +140,6 @@ It’s a low-friction way to surface local mesh-native conversations to a wider 
 
 1. Add mapping (Probably later).
 
-2. Stop polling when nobody's looking. `views.js` starts the fast (10s) and slow (20s) timers on load and never clears them, so a backgrounded tab keeps hitting `/api/stats` and `/api/nodes` forever — one forgotten tab was doing ~340 requests/hour against the Pi. Add a `visibilitychange` handler: clear both timers on hide, restart them on show with one immediate poll to catch up.
-
-3. Drop `indent=2` from the API responses. `/api/nodes?limit=50` goes out as 28 KB where compact is 20 KB. Brotli hides it on the wire, but the Pi still serializes and then compresses the extra bytes for nothing. Keep the pretty-printing behind `DEBUG` if it's worth having at all.
-
-4. No logrotate for `gunicorn.access.log` — 28 MB and growing since February, a line per poll, and nginx already logs the same requests. Either ship a logrotate config in `deploy/` or turn gunicorn's access log off and let nginx be the record.
-
 
 Licensed under the GNU AGPL-3.0
 Copyright (c) 2026 epohs

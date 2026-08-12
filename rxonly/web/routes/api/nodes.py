@@ -1,9 +1,8 @@
-import json
 from typing import Any, Optional
 
 from flask import request, Response
 
-from rxonly.web.routes.api import api_bp
+from rxonly.web.routes.api import api_bp, json_response
 from rxonly.web.db import get_db_connection, node_where
 
 
@@ -86,10 +85,7 @@ def get_nodes() -> Response:
     "nodes": rows,
   }
 
-  return Response(
-    json.dumps(payload, indent=2),
-    mimetype="application/json",
-  )
+  return json_response(payload)
 
 
 @api_bp.route("/nodes/<node_id>", methods=["GET"])
@@ -124,13 +120,6 @@ def get_node(node_id: str) -> Response:
     conn.close()
 
   if row is None:
-    return Response(
-      json.dumps({"error": "Node not found"}),
-      status=404,
-      mimetype="application/json",
-    )
+    return json_response({"error": "Node not found"}, status=404)
 
-  return Response(
-    json.dumps(dict(row), indent=2),
-    mimetype="application/json",
-  )
+  return json_response(dict(row))

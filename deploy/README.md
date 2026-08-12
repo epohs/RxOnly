@@ -75,6 +75,39 @@ This file is optional and is only used if Gunicorn is started with
 If you want to customize Gunicorn runtime settings, copy
 `gunicorn.conf.py.example` to `RxOnly/gunicorn.conf.py` and adjust as needed.
 
+If you do use it, install `logrotate.rxonly` alongside it — the `accesslog` and
+`errorlog` paths it sets are two files that nothing else rotates.
+
+
+
+
+## [logrotate.rxonly](./logrotate.rxonly.example)
+
+### Log Rotation (only with `gunicorn.conf.py`)
+
+Rotates the two log files `gunicorn.conf.py` points Gunicorn at. Without it they
+grow forever: the access log is a line per request, and with a browser polling
+every ten seconds per open tab that added up to 28 MB in about six months on my
+own Pi.
+
+```
+sudo cp deploy/logrotate.rxonly.example /etc/logrotate.d/rxonly
+sudo chown root:root /etc/logrotate.d/rxonly
+sudo chmod 644 /etc/logrotate.d/rxonly
+```
+
+Then edit the `create` line to name the user the service runs as, and check it
+without waiting a week for the first pass:
+
+```
+sudo logrotate --debug /etc/logrotate.d/rxonly    # says what it would do
+sudo logrotate --force /etc/logrotate.d/rxonly    # actually does it, once
+```
+
+You do not need this if you start Gunicorn without `--config`, which is what the
+systemd unit here does — that output goes to the journal, and journald has its
+own limits.
+
 
 
 

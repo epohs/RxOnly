@@ -1,9 +1,8 @@
-import json
 from typing import Any
 
 from flask import Response
 
-from rxonly.web.routes.api import api_bp
+from rxonly.web.routes.api import api_bp, json_response
 from rxonly.web.db import get_db_connection
 
 
@@ -31,7 +30,4 @@ def get_channels() -> Response:
     "channels": rows,
   }
 
-  return Response(
-    json.dumps(payload, indent=2),
-    mimetype="application/json",
-  )
+  return json_response(payload)

@@ -402,6 +402,42 @@
     }
   }
 
+  /**
+   * Poll only while somebody is looking at the page.
+   *
+   * Both timers used to be started once at load and never touched again, so a tab
+   * left open behind another one went on asking for /api/stats every ten seconds
+   * and /api/nodes every twenty for as long as the browser lived, rendering all of
+   * it into a document nobody could see. One forgotten tab was measured doing
+   * ~340 requests an hour against the Pi.
+   *
+   * Coming back runs one of each poll straight away rather than waiting the
+   * interval out. That is the whole reason this is safe to do: without it, hiding
+   * a tab would trade a wasted request for a stale screen, and the first thing a
+   * returning reader looks at is exactly the numbers the fast poll refreshes. Both
+   * are called after the timers are re-armed, not before, so an await inside them
+   * cannot delay the schedule.
+   *
+   * The immediate slow poll is subject to the same scroll pauses the interval one
+   * is — `nodes_scroll_paused` and `messages_scroll_paused` are read inside
+   * run_slow_poll — so a reader who comes back to a list they had scrolled into
+   * keeps their place rather than having it reloaded out from under them.
+   */
+  function resume_polling() {
+    start_polling();
+    run_fast_poll();
+    run_slow_poll();
+  }
+
+  function handle_visibility_change() {
+    if (document.hidden) {
+      stop_polling();
+      return;
+    }
+
+    resume_polling();
+  }
+
 
   /* ------------------------------------------
      Connection Error Display
@@ -700,6 +736,9 @@
     // Hash routing
     window.addEventListener("hashchange", handle_hash_change);
 
+    // Stop polling when the tab goes behind another one, and catch up on return.
+    document.addEventListener("visibilitychange", handle_visibility_change);
+
     // Main content clicks (node links in messages, message timestamps)
     if (dom_elements.main_content) {
       dom_elements.main_content.addEventListener("click", handle_main_content_click);
@@ -772,7 +811,14 @@
       show_home_view();
     }
 
-    start_polling();
+    // Not started at all when the page is loaded into a background tab — a
+    // middle-clicked link, or a session the browser restored without showing.
+    // The dashboard is server-side rendered, so the tab already has something
+    // correct to show whenever it is first looked at, and the visibility handler
+    // is what starts the timers and catches it up at that moment.
+    if (!document.hidden) {
+      start_polling();
+    }
   }
 
   // Run on DOM ready
