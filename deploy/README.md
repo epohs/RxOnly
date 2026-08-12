@@ -90,23 +90,55 @@ grow forever: the access log is a line per request, and with a browser polling
 every ten seconds per open tab that added up to 28 MB in about six months on my
 own Pi.
 
+**Edit the `create` line before you install it**, and check the edit took. It
+names the user Gunicorn runs as — the same account as `User=` in
+`rxonly-www.service` — and it ships as the literal string `YOURUSERNAME`, which
+is not a user. logrotate answers an unknown user by discarding the *whole* block,
+so the config sits there looking installed and rotates nothing at all.
+
 ```
+sed -i 's/YOURUSERNAME/your-actual-username/' deploy/logrotate.rxonly.example
+grep 'create 0640' deploy/logrotate.rxonly.example     # must not say YOURUSERNAME
+
 sudo cp deploy/logrotate.rxonly.example /etc/logrotate.d/rxonly
 sudo chown root:root /etc/logrotate.d/rxonly
 sudo chmod 644 /etc/logrotate.d/rxonly
 ```
 
-Then edit the `create` line to name the user the service runs as, and check it
-without waiting a week for the first pass:
+Then check it, rather than waiting a week to find out:
 
 ```
 sudo logrotate --debug /etc/logrotate.d/rxonly    # says what it would do
 sudo logrotate --force /etc/logrotate.d/rxonly    # actually does it, once
 ```
 
-You do not need this if you start Gunicorn without `--config`, which is what the
-systemd unit here does — that output goes to the journal, and journald has its
-own limits.
+The `--debug` pass has to name both logs and print no `error:` line. `Handling 0
+logs` means the block was thrown away — read the first few lines of the output for
+which line it objected to.
+
+After `--force`, the check that matters is not that the files were renamed but
+that Gunicorn followed:
+
+```
+curl -s -o /dev/null http://127.0.0.1:8000/api/stats
+ls -l /var/log/rxonly/
+```
+
+The new `gunicorn.access.log` must be **non-empty** after that request. If it is
+still 0 bytes while `gunicorn.access.log.1` is the one growing, the `postrotate`
+signal did not reach Gunicorn and it is still writing down the rotated inode —
+the failure that looks fine for a week and then hands you one enormous `.1` and
+an empty log. `sudo ls -l /proc/$(pgrep -f 'gunicorn --config' | head -1)/fd`
+settles it either way: the access-log descriptor should point at the un-suffixed
+path.
+
+No `.gz` appears on this first pass, which is `delaycompress` working as
+intended — the newest rotation is compressed on the *next* cycle, so it can still
+be read without `zgrep`.
+
+You do not need any of this if you start Gunicorn without `--config`, which is
+what the systemd unit here does — that output goes to the journal, and journald
+has its own limits.
 
 
 

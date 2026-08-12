@@ -1,9 +1,17 @@
 # Log rotation for RxOnly's Gunicorn logs
 #
+# **Change YOURUSERNAME on the `create` line below before installing this, and
+# check that it took.** It has to be the account `User=` names in
+# rxonly-www.service. An unknown user is not a warning logrotate carries on past:
+# it reports `unknown user 'YOURUSERNAME'`, then `found error in
+# /var/log/rxonly/*.log, skipping`, and discards this entire block — so the config
+# is installed, the cron job runs every week, and nothing is ever rotated. The only
+# place it says so is `logrotate --debug`, which is why the README asks you to run
+# it. Ask for `Handling 0 logs` in that output; that line is this mistake.
+#
 # Install as /etc/logrotate.d/rxonly, owned by root and mode 644 — logrotate
 # refuses a file in that directory that is group- or world-writable, and says so
-# only if you ask it to run verbosely. Change YOURUSERNAME below to the account
-# `User=` names in rxonly-www.service.
+# only if you ask it to run verbosely.
 #
 # This exists because nothing was rotating these. gunicorn.access.log on the Pi
 # reached 28 MB over about six months of a line per poll per open tab, on a card
