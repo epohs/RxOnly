@@ -58,12 +58,49 @@
 
   /**
    * Check if a message is a tapback (reaction).
-   * A tapback is a reply (reply_to is set) whose text is emoji-only.
+   *
+   * A tapback is always a reply, so no reply_to settles it immediately. Beyond
+   * that the archive may know the answer outright: schema 0.10.0 records the
+   * firmware's own emoji flag, and where it is present it wins — it is what the
+   * sending client said it was doing, where is_emoji_only() only ever guesses
+   * from the text and gets both directions wrong (a deliberate one-emoji reply
+   * reads as a reaction; a reaction carrying a word does not).
+   *
+   * `emoji == null` is the pre-0.10.0 row, whose flag was never recorded and is
+   * never backfilled — the heuristic is all there is for those, and it stays for
+   * exactly them. Checked with `!= null` rather than truthiness because 0 is a
+   * recorded answer meaning "not a reaction", not a missing one.
+   *
+   * mesh-console's ui/tapbacks.py reimplements this; the two are kept in step by
+   * hand and deliberately not shared.
+   *
    * @param {Object} message - Message data from API
    * @returns {boolean}
    */
   function is_tapback(message) {
-    return message.reply_to != null && is_emoji_only(message.text);
+    if (message.reply_to == null) return false;
+    if (message.emoji != null) return message.emoji === 1;
+    return is_emoji_only(message.text);
+  }
+
+  /**
+   * Check if a tapback has no parent anywhere in the archive.
+   *
+   * reply_to_text comes from a LEFT JOIN against the whole `messages` table, not
+   * against the page that was loaded — so NULL here does not mean "the parent
+   * hasn't been paged in yet", it means the parent is not in the archive at all
+   * and no amount of paging will produce it. That is the difference between
+   * holding a tapback for later and giving up and drawing it.
+   *
+   * Parents go missing routinely: a tapback is always newer than what it reacts
+   * to, so MAX_MESSAGES pruning removes parents first, and a reaction can also
+   * arrive over MQTT for a message this radio never heard.
+   *
+   * @param {Object} message - Message data from API
+   * @returns {boolean}
+   */
+  function is_orphan_tapback(message) {
+    return is_tapback(message) && message.reply_to_text == null;
   }
 
   /**
@@ -346,6 +383,15 @@
       time_el.setAttribute("datetime", R.format_iso_timestamp(message.rx_time));
     }
 
+    // An orphan tapback is drawn as an ordinary row, so without this it appears
+    // as a bare 💪 from nobody in particular with no hint that it was aimed at
+    // something. The note says what the reply bar cannot: the parent is gone, so
+    // there is nothing to link to and no excerpt to show.
+    if (is_orphan_tapback(message)) {
+      var orphan_note = clone.querySelector(".message-orphan-note");
+      if (orphan_note) orphan_note.removeAttribute("hidden");
+    }
+
     // Populate reply bar for non-tapback replies with parent data
     if (message.reply_to != null && !is_tapback(message) && message.reply_to_text != null) {
       var reply_bar = clone.querySelector(".message-reply-bar");
@@ -398,22 +444,42 @@
   }
 
   /**
+   * Split a batch into messages that get drawn and tapbacks that get attached.
+   *
+   * Orphans go in `normal`, which is the whole of the fix for "Primary (1) and
+   * an empty channel": a tapback whose parent is not in the archive can never be
+   * attached to anything, so leaving it in `tapbacks` meant it was held forever
+   * and drawn nowhere while the sidebar went on counting it.
+   *
+   * Shared by both callers so the two cannot drift — they had identical copies
+   * of this, and identical is what they have to stay.
+   *
+   * @param {Array} messages - Array of message objects from API
+   * @returns {{normal: Array, tapbacks: Array}}
+   */
+  function partition_tapbacks(messages) {
+    var normal = [];
+    var tapbacks = [];
+    messages.forEach(function(message) {
+      if (is_tapback(message) && !is_orphan_tapback(message)) {
+        tapbacks.push(message);
+      } else {
+        normal.push(message);
+      }
+    });
+    return { normal: normal, tapbacks: tapbacks };
+  }
+
+  /**
    * Append message items to the messages list.
    * @param {HTMLElement} messages_ul - The UL element
    * @param {Array} messages - Array of message objects from API
    * @param {boolean} is_dm - Whether these are DMs
    */
   function append_messages_to_list(messages_ul, messages, is_dm) {
-    // Separate tapbacks from normal messages
-    var normal = [];
-    var tapbacks = [];
-    messages.forEach(function(message) {
-      if (is_tapback(message)) {
-        tapbacks.push(message);
-      } else {
-        normal.push(message);
-      }
-    });
+    var split = partition_tapbacks(messages);
+    var normal = split.normal;
+    var tapbacks = split.tapbacks;
 
     // Render normal messages first
     var fragment = document.createDocumentFragment();
@@ -447,16 +513,9 @@
       ? document.documentElement.scrollHeight
       : messages_ul.scrollHeight;
 
-    // Separate tapbacks from normal messages
-    var normal = [];
-    var tapbacks = [];
-    messages.forEach(function(message) {
-      if (is_tapback(message)) {
-        tapbacks.push(message);
-      } else {
-        normal.push(message);
-      }
-    });
+    var split = partition_tapbacks(messages);
+    var normal = split.normal;
+    var tapbacks = split.tapbacks;
 
     // Render normal messages
     var fragment = document.createDocumentFragment();
@@ -628,20 +687,45 @@
     var messages = is_dm ? data.direct_messages : data.messages;
 
     if (messages.length === 0) {
-      var empty = R.populate_template("template-messages-empty", {}, {});
-      if (empty) {
-        var heading = empty.querySelector("[data-field='heading']");
-        if (heading) heading.textContent = heading_text;
-        dom_elements.main_content.innerHTML = "";
-        dom_elements.main_content.appendChild(empty);
-      }
+      show_messages_empty_state(heading_text);
       return;
     }
 
     R.update_message_cursors(data, is_dm);
     render_messages_dom(heading_text, messages, is_dm);
+
+    // **Rows returned is not rows drawn.** The check above asks the API how many
+    // messages there are; every tapback in the batch whose parent is not in it
+    // is held back for a later page, so a batch can be non-empty and still put
+    // nothing on the screen — which is what produced a heading over an empty
+    // list where mesh-console, testing the same thing differently, said "No
+    // messages in this channel."
+    //
+    // Only when there is no further page to fetch. With more pages the held
+    // tapbacks may still find their parents, and an empty state that resolves
+    // itself a second later is worse than a blank moment.
+    if (!app_state.messages_has_more_older && !app_state.messages_has_more_newer) {
+      var messages_ul = document.getElementById("messages-list");
+      if (messages_ul && messages_ul.querySelectorAll("li[data-message-id]").length === 0) {
+        show_messages_empty_state(heading_text);
+      }
+    }
+
     // Scroll position is left at the top; "Jump to newest" button will appear
     // automatically if there are newer pages (messages_has_more_newer = true).
+  }
+
+  /**
+   * Replace main content with the "no messages" template under `heading_text`.
+   */
+  function show_messages_empty_state(heading_text) {
+    var empty = R.populate_template("template-messages-empty", {}, {});
+    if (!empty) return;
+
+    var heading = empty.querySelector("[data-field='heading']");
+    if (heading) heading.textContent = heading_text;
+    dom_elements.main_content.innerHTML = "";
+    dom_elements.main_content.appendChild(empty);
   }
 
   /**

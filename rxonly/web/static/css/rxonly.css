@@ -842,6 +842,21 @@ body:not(.no-js) .nodes-search-reveal {
   display: none;
 }
 
+/* The note on a tapback whose parent is gone from the archive. Muted and small
+   like the reply bar, because it is the same kind of aside, but plain text and
+   below the message rather than a bar above it — there is no parent to link to,
+   and dressing it as a link would promise one. */
+.message-orphan-note {
+  margin: var(--space-xs) 0 0 0;
+  font-size: 0.8em;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.message-orphan-note[hidden] {
+  display: none;
+}
+
 
 
 /* ============================================

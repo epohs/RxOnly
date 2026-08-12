@@ -14,8 +14,14 @@ from rxonly.config import Config
 # on something introduced by a newer schema version. See mesh-collector's
 # schema.sql for the versioning rules.
 #
-# 0.9.0 because routes/api/nodes.py selects hops_away, which was added in 0.9.0.
-REQUIRED_SCHEMA = "0.9.0"
+# 0.10.0 because the message and DM routes select `emoji`, added in 0.10.0. It
+# was 0.9.0 for routes/api/nodes.py selecting hops_away, and 0.8.0 for the
+# telemetry columns before that.
+#
+# Note that 0.10.0 is *newer* than 0.9.0 — the comparison below splits on '.'
+# and compares integers precisely so this reads correctly. A lexical compare
+# would put this archive below the one it supersedes.
+REQUIRED_SCHEMA = "0.10.0"
 
 
 

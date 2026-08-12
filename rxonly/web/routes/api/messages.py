@@ -75,7 +75,8 @@ def get_messages() -> Response:
     query = f"""
       SELECT m.id, m.message_id, m.channel_index, m.from_node, m.to_node,
              m.reply_to, m.text, m.rx_time, m.hop_count, m.snr, m.rssi,
-             m.via_mqtt, n.long_name AS from_node_long_name, n.short_name
+             m.via_mqtt, m.emoji,
+             n.long_name AS from_node_long_name, n.short_name
              AS from_node_short_name,
              parent.text AS reply_to_text,
              parent.from_node AS reply_to_from_node,
@@ -165,6 +166,7 @@ def get_message(message_id: int) -> Response:
       """
       SELECT m.id, m.message_id, m.channel_index, m.from_node, m.to_node,
              m.reply_to, m.text, m.rx_time, m.hop_count, m.snr, m.rssi, m.via_mqtt,
+             m.emoji,
              n.long_name AS from_node_long_name,
              n.short_name AS from_node_short_name,
              c.name AS channel_name,

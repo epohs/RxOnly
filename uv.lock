@@ -400,8 +400,8 @@ requires-dist = [
     { name = "flask" },
     { name = "flask-compress", specifier = ">=1.23" },
     { name = "gunicorn", specifier = ">=25.0.3" },
-    { name = "rcssmin", specifier = ">=1.2.2" },
-    { name = "rjsmin", specifier = ">=1.2.5" },
+    { name = "rcssmin", specifier = "==1.2.2" },
+    { name = "rjsmin", specifier = "==1.2.5" },
 ]
 
 [[package]]

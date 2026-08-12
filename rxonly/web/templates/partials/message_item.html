@@ -11,6 +11,10 @@
         </a>
       </header>
       <p class="message-text" data-field="text"></p>
+      {# Shown by create_message_item() for a tapback whose parent is not in the
+         archive. Not a link, unlike the reply bar above it: there is no message
+         to open. #}
+      <p class="message-orphan-note" hidden>reacting to an earlier message</p>
     </article>
   </li>
 </template>

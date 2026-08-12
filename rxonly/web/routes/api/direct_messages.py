@@ -73,7 +73,7 @@ def get_direct_messages() -> Response:
 
     query = f"""
       SELECT dm.id, dm.message_id, dm.from_node, dm.text, dm.rx_time,
-             dm.snr, dm.rssi, dm.reply_to, dm.via_mqtt,
+             dm.snr, dm.rssi, dm.reply_to, dm.via_mqtt, dm.emoji,
              n.long_name AS from_node_long_name,
              n.short_name AS from_node_short_name,
              parent.text AS reply_to_text,
@@ -156,7 +156,7 @@ def get_direct_message(message_id: int) -> Response:
     cur.execute(
       """
       SELECT dm.id, dm.message_id, dm.from_node, dm.text, dm.rx_time,
-             dm.snr, dm.rssi, dm.reply_to, dm.via_mqtt,
+             dm.snr, dm.rssi, dm.reply_to, dm.via_mqtt, dm.emoji,
              n.long_name AS from_node_long_name,
              n.short_name AS from_node_short_name,
              parent.text AS reply_to_text,
