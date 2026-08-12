@@ -1,0 +1,22 @@
+# Built assets — tracked, but not worth reading
+#
+# scripts/build_assets.py minifies rxonly.css and the four JS sources into one
+# content-hashed bundle each. They are committed on purpose: the pi deploys by
+# `git pull` with no build step, and asset-manifest.json names the files a pull
+# has to bring with it. rcssmin and rjsmin are pinned to exact versions in
+# pyproject.toml so every machine minifies to the same bytes and therefore the
+# same hash — the name is a fingerprint the whole deployment agrees on, which is
+# what makes committing the output safe rather than merely convenient.
+#
+# What they are not is readable. A rebuild rewrites the whole bundle on one line,
+# so a diff of it says nothing that a diff of the source did not already say, and
+# says it in several hundred columns. `-diff` collapses them to "Binary files
+# differ" in git and in review; `linguist-generated` keeps them out of GitHub's
+# language stats and folds them by default. Neither affects what is stored: the
+# files are still text, still tracked, still deployed.
+#
+# The wildcard is deliberately loose about the hash and strict about everything
+# else, so `rxonly.css` and `messages.js` — the sources, in the same directories —
+# are untouched by this.
+rxonly/web/static/css/rxonly-*.min.css linguist-generated -diff
+rxonly/web/static/js/rxonly-*.min.js   linguist-generated -diff
