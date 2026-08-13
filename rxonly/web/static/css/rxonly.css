@@ -67,7 +67,32 @@
     --color-link-hover: oklch(78% 0.08 205);
 
     /* Highlights */
-    --color-accent-node: oklch(0.8042 0.1543 81.12);
+    /* --color-accent-node was oklch(0.8042 0.1543 81.12) and is the one entry in
+       this theme that had never been checked against the page it sits on. It is a
+       hair off the dark theme's value — 0.8042 against 0.8029 — which is what a
+       colour copied across a theme boundary looks like rather than one tuned for
+       it: at that lightness it managed **1.69:1** against --color-bg-app and
+       1.59:1 on a surface. This is the colour that means "this is a node"
+       everywhere in the suite, so in the light theme every node name in the
+       sidebar, every .message-from and every id in mesh-console's log viewer was
+       effectively unreadable.
+
+       --color-accent-channel beside it is the counter-example and the model: 3.55:1
+       light and 3.61:1 dark, plainly tuned twice. This lands at **3.63:1**, which
+       puts the two accents where they belong — together, between
+       --color-text-primary at 3.36:1 and --color-text-secondary at 3.80:1.
+
+       Hue is untouched at 81.12, so this is the same yellow the dark theme uses,
+       darkened for a near-white page rather than replaced. Lightness 0.60 is the
+       floor: below it, chroma at this hue leaves sRGB, and an out-of-gamut oklch()
+       is one a browser and mesh-console's own hex conversion would clip
+       differently — which would quietly break the one-to-one mapping that
+       theme.py's whole premise rests on. 0.12 is inside the gamut at 0.60 with
+       room to spare (the boundary is 0.1238), so it stays as saturated as it can
+       while both projects still agree on what the colour is.
+
+       The dark entry is deliberately left alone: it is 10.74:1 and correct. */
+    --color-accent-node: oklch(0.60 0.12 81.12);
     --color-accent-channel: oklch(0.6202 0.1641 29.03);
 
     /* Status / future use */
