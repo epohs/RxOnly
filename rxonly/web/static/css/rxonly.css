@@ -398,6 +398,44 @@ body {
   color: var(--color-text-muted);
 }
 
+/* A channel with something waiting in it: the count goes bold, and nothing else
+   changes.
+
+   The weight is on .channel-count rather than on the whole link because the count is
+   what the cue is about — how much is in there is the number that just moved. The name
+   is left alone so that the row still reads as the same channel it was, and so this
+   does not collide with :hover and .active, both of which already speak through
+   .channel-name.
+
+   Weight alone, and the count stays --color-text-muted. That is what mesh-console does
+   with the same fact — `ChannelItem.unread` is `text-style: bold` and nothing more — so
+   the two interfaces say "unread" the same way. 600 is this stylesheet's emphasis
+   weight, the one [aria-current="page"] and .dashboard-section h3 take; .node-name's
+   500 is a resting weight rather than an emphatic one.
+
+   **On the naming**, since this project has three patterns and only one of them fits.
+   `.channel-link--dm` is BEM on this very element, but it is a *variant* — which kind
+   of channel-link this permanently is — and unread is state that comes and goes.
+   `message-unread`/`message-read` in rxonly.js are the existing read-state vocabulary
+   and are subject-prefixed, but they are JS bookkeeping with no rule in this file. What
+   this is structurally is a state modifier on .channel-link that styles a child, and
+   there is exactly one precedent for that: `.channel-link.active > .channel-name`,
+   three rules up. This is that shape, so it takes that shape's naming. It also lands on
+   the same word mesh-console already uses for the identical fact.
+
+   **Nothing applies this class yet, and it cannot be applied from what the client
+   currently knows.** Read positions are per channel in localStorage
+   (`rxonly_last_read_ch_<index>`, carrying `{message_id, rx_time}` — see
+   `build_last_read_key`), but the only per-channel figure the poll receives is
+   `stats.channel_counts`, which is a count. Deciding unread needs the newest rx_time
+   per channel to compare a stored position against; that is one more column on the
+   GROUP BY already in `routes/api/stats.py`, and then `update_channel_counts` in
+   views.js is where the class would go on and come off. */
+
+.channel-link.unread > .channel-count {
+  font-weight: 600;
+}
+
 .node-link {
   display: flex;
   gap: var(--space-xs);
