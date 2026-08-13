@@ -5,7 +5,7 @@ from flask import Blueprint, render_template
 
 from rxonly.config import Config
 from rxonly.web.assets import CSS_KEY, JS_KEY, read_manifest
-from rxonly.web.db import get_db_connection, get_meta, node_where
+from rxonly.web.db import get_db_connection, get_meta, node_where, drawn_rows
 
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -92,25 +92,43 @@ def index() -> str:
   try:
     cur = conn.cursor()
 
-    # Fetch channels with message counts
+    # Fetch channels with message counts.
+    #
+    # Counting drawn rows, the same clause `/api/stats` counts — this renders the
+    # sidebar and the fast poll rewrites it ten seconds later, so a different rule
+    # here would show one number and then quietly change it to another while the
+    # reader watched. Same reasoning as the node list below.
     cur.execute(
-      """
+      f"""
       SELECT c.channel_index, c.name, COUNT(m.id) AS message_count
       FROM channels c
-      LEFT JOIN messages m ON c.channel_index = m.channel_index
+      LEFT JOIN messages m
+        ON c.channel_index = m.channel_index
+       AND {drawn_rows("messages", "m")}
       GROUP BY c.channel_index, c.name
       ORDER BY c.channel_index
       """
     )
     channels: list[dict[str, Any]] = [dict(row) for row in cur.fetchall()]
 
-    # Get direct message count (only if we're exposing them)
+    # Two DM counts for two places, as in /api/stats: the sidebar prints what the DM
+    # list will draw, the dashboard tile prints what the archive holds.
     serve_direct_messages: bool = Config.get("SERVE_DIRECT_MESSAGES", False)
     if serve_direct_messages:
       cur.execute("SELECT COUNT(*) AS count FROM direct_messages")
       total_direct_messages: int = cur.fetchone()["count"]
+
+      cur.execute(
+        f"""
+        SELECT COUNT(*) AS count
+        FROM direct_messages d
+        WHERE {drawn_rows("direct_messages", "d")}
+        """
+      )
+      direct_message_count: int = cur.fetchone()["count"]
     else:
       total_direct_messages: int = 0
+      direct_message_count: int = 0
 
     # Fetch nodes (initial page)
     #
@@ -169,6 +187,7 @@ def index() -> str:
     nodes=nodes,
     total_nodes=total_nodes,
     total_direct_messages=total_direct_messages,
+    direct_message_count=direct_message_count,
     serve_direct_messages=serve_direct_messages,
     local_node=local_node,
     total_messages=total_messages,

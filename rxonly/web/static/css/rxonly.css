@@ -423,14 +423,19 @@ body {
    three rules up. This is that shape, so it takes that shape's naming. It also lands on
    the same word mesh-console already uses for the identical fact.
 
-   **Nothing applies this class yet, and it cannot be applied from what the client
-   currently knows.** Read positions are per channel in localStorage
-   (`rxonly_last_read_ch_<index>`, carrying `{message_id, rx_time}` — see
-   `build_last_read_key`), but the only per-channel figure the poll receives is
-   `stats.channel_counts`, which is a count. Deciding unread needs the newest rx_time
-   per channel to compare a stored position against; that is one more column on the
-   GROUP BY already in `routes/api/stats.py`, and then `update_channel_counts` in
-   views.js is where the class would go on and come off. */
+   **Applied by `update_channel_unread` in views.js**, which compares the read position
+   this browser stored in `rxonly_last_read_ch_<index>` against
+   `stats.channel_newest_inbound_rx_time` from the fast poll. Read positions are
+   localStorage, so the cue is per browser and shares nothing with mesh-console's own
+   read state on the pi.
+
+   The one thing worth knowing before changing any of it: **both sides of that
+   comparison have to describe the same set of rows.** The endpoint reports the newest
+   row the message list will *draw*, not the newest row in the channel — a tapback
+   with a parent is folded into a pill and is never a row anyone can scroll past, so
+   counting one here raised a bold that no amount of reading could clear. `drawn_rows`
+   in web/db.py is that rule, and `get_unread_ceiling` in rxonly.js is what makes
+   reaching the end of a list mean "nothing waiting" whatever the list folded away. */
 
 .channel-link.unread > .channel-count {
   font-weight: 600;

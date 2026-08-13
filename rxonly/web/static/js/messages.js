@@ -600,7 +600,6 @@
     var heading_text = options.heading;
 
     R.reset_message_state();
-    app_state.messages_is_dm = is_dm;
 
     dom_elements.main_content.innerHTML = "<p>Loading...</p>";
 
@@ -956,12 +955,15 @@
     var messages_list = document.getElementById("messages-list");
     if (!messages_list || app_state.messages_is_loading) return;
 
+    var conversation = R.current_conversation();
+    if (!conversation) return;
+
     app_state.messages_is_loading = true;
     clear_pending_tapbacks();
 
     try {
-      var is_dm = app_state.messages_is_dm;
-      var channel_index = app_state.current_channel_index;
+      var is_dm = conversation.is_dm;
+      var channel_index = conversation.channel_index;
 
       var data = await R.fetch_message_page({
         is_dm: is_dm,
@@ -991,10 +993,28 @@
       // Scroll to bottom
       messages_list.scrollTop = messages_list.scrollHeight;
 
-      // Mark the newest message as read
+      // Jumping to the newest page is reading to the end, so the position goes to the
+      // end — the ceiling the sidebar compares against, not the newest row of the
+      // batch. `messages` here is the raw batch, folded reactions and all, so its last
+      // entry is not necessarily a row that was drawn; taking the ceiling makes this
+      // agree with the bottom-grace block in update_read_position, which reaches the
+      // same state by scrolling.
+      //
+      // Through advance_last_read like every other write, which is what stops this
+      // dragging a position *backwards* — it used to call set_last_read outright, so
+      // a jump landing on an older page moved the mark the wrong way. And the sidebar
+      // is refreshed here, because nothing else will until the next fast poll: the
+      // channel stayed bold for up to ten seconds after being read to the end.
       if (messages.length > 0) {
         var newest_msg = messages[messages.length - 1];
-        R.set_last_read(is_dm, channel_index, newest_msg.message_id, newest_msg.rx_time);
+        var newest_rx_time = newest_msg.rx_time;
+        var ceiling = R.get_unread_ceiling(is_dm, channel_index);
+        if (ceiling !== null && ceiling > newest_rx_time) {
+          newest_rx_time = ceiling;
+        }
+        if (R.advance_last_read(is_dm, channel_index, newest_msg.message_id, newest_rx_time)) {
+          R.refresh_channel_unread();
+        }
       }
 
       // Update button visibility
@@ -1018,11 +1038,14 @@
     var messages_list = document.getElementById("messages-list");
     if (!messages_list) return;
 
+    var conversation = R.current_conversation();
+    if (!conversation) return;
+
     app_state.messages_is_loading = true;
 
     try {
-      var is_dm = app_state.messages_is_dm;
-      var channel_index = app_state.current_channel_index;
+      var is_dm = conversation.is_dm;
+      var channel_index = conversation.channel_index;
 
       var data = await R.fetch_message_page({
         is_dm: is_dm,
@@ -1065,11 +1088,14 @@
     var messages_list = document.getElementById("messages-list");
     if (!messages_list) return;
 
+    var conversation = R.current_conversation();
+    if (!conversation) return;
+
     app_state.messages_is_loading = true;
 
     try {
-      var is_dm = app_state.messages_is_dm;
-      var channel_index = app_state.current_channel_index;
+      var is_dm = conversation.is_dm;
+      var channel_index = conversation.channel_index;
 
       var data = await R.fetch_message_page({
         is_dm: is_dm,

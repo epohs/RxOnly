@@ -68,7 +68,10 @@
                data-channel-index="dm"
                class="channel-link channel-link--dm">
               <span class="channel-name">Direct Messages</span>
-              <span class="channel-count">({{ total_direct_messages }})</span>
+              {# The drawn count, not the archive total — this is the number the
+                 unread cue bolds, so it has to describe the list it opens. The
+                 dashboard tile prints total_direct_messages for the other question. #}
+              <span class="channel-count">({{ direct_message_count }})</span>
             </a>
           </li>
           {% endif %}

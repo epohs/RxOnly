@@ -70,7 +70,8 @@
     messages_newest_rx_time: null,
     messages_oldest_id: null,
     messages_newest_id: null,
-    messages_is_dm: false,
+    // No messages_is_dm here on purpose — which conversation is on screen is derived
+    // from current_view by current_conversation(), so the two cannot drift apart.
     messages_total: 0,
 
     // Nodes search state
@@ -617,6 +618,32 @@
      ------------------------------------------ */
 
   /**
+   * Which conversation is on screen, or null if the view is not a message list.
+   *
+   * **One derivation, from `current_view` alone.** There was a second — an
+   * `app_state.messages_is_dm` flag — and the two were set at different moments:
+   * `current_view` and `current_channel_index` in show_channel_messages, the flag
+   * several awaited fetches later inside render_messages_view. Between those the pair
+   * disagreed, and a read position written in that window went under the previous
+   * conversation's key. Deriving it means the two cannot drift, and it is one fewer
+   * piece of state to keep in step by hand.
+   *
+   * The single-message view ("message") is not a list and has no read position; it
+   * returns null here, and every caller treats that as "nothing to do".
+   *
+   * @returns {{ is_dm: boolean, channel_index: number|null }|null}
+   */
+  function current_conversation() {
+    if (app_state.current_view === "channel") {
+      return { is_dm: false, channel_index: app_state.current_channel_index };
+    }
+    if (app_state.current_view === "direct_messages") {
+      return { is_dm: true, channel_index: null };
+    }
+    return null;
+  }
+
+  /**
    * Build a localStorage key for last-read tracking.
    * @param {boolean} is_dm - true for direct messages
    * @param {number|null} channel_index - channel index (ignored for DMs)
@@ -648,6 +675,9 @@
 
   /**
    * Save the last-read position for a channel/DM.
+   *
+   * Not called directly outside this block — go through advance_last_read, which is
+   * where the "forward only" rule lives.
    */
   function set_last_read(is_dm, channel_index, message_id, rx_time) {
     try {
@@ -659,6 +689,71 @@
   }
 
   /**
+   * Move a stored read position forward, and only forward.
+   *
+   * **The single place a read position is written.** There were three, with three
+   * different rules — the threshold scan and the bottom-grace block each carried
+   * their own copy of the comparison, and "Jump to newest" carried none at all and
+   * could drag a position backwards. Three rules for one fact is why this mechanism
+   * was hard to follow; this is the one rule.
+   *
+   * Returns whether it moved. Every caller gates its sidebar refresh on that, because
+   * `update_channel_unread` re-reads localStorage for every channel in the list and
+   * nothing but a moved position can change what it decides — and the scroll handler
+   * calls into here undebounced, several times a second.
+   *
+   * **rx_time alone decides "forward",** which is the same comparison `has_unread` in
+   * views.js and the GROUP BY in routes/api/stats.py make. `message_id` is the mesh
+   * packet id — an arbitrary number from the sending radio — so ranking a tie by it
+   * compares two unrelated numbers; the server stopped doing that and these had not.
+   * It is still stored, because it is what identifies the row to anyone reading
+   * localStorage by hand, but it decides nothing.
+   *
+   * What that gives up is the tie: a row arriving in the same whole second as the
+   * stored position does not move it, and waits for the next second. rx_time has
+   * one-second resolution, so this is routine — and it is a bounded, self-correcting
+   * miss rather than a mark that cannot be cleared.
+   */
+  function advance_last_read(is_dm, channel_index, message_id, rx_time) {
+    if (!message_id || !rx_time) return false;
+    var current = get_last_read(is_dm, channel_index);
+    if (current && rx_time <= current.rx_time) return false;
+    set_last_read(is_dm, channel_index, message_id, rx_time);
+    return true;
+  }
+
+  /**
+   * The newest inbound rx_time the sidebar is comparing this conversation against,
+   * from the last poll — the very number `has_unread` is handed in views.js.
+   *
+   * Exists so that reaching the end of a list can mean "nothing is waiting" by
+   * construction rather than by coincidence. The list does not draw one row per
+   * archived row: a tapback with a parent is folded into a pill on that parent and
+   * never becomes an `li`, so the newest row a reader can physically scroll past may
+   * be older than the newest row the channel has. Anchoring the end-of-list position
+   * to this number closes that gap for every folded row class at once, including the
+   * legacy reactions routes/api/stats.py cannot filter in SQL.
+   *
+   * Null before the first poll has returned, and on a server that does not report the
+   * field — in both cases the caller falls back to the newest drawn row, which is the
+   * behaviour this had before.
+   */
+  function get_unread_ceiling(is_dm, channel_index) {
+    var stats = app_state.last_stats && app_state.last_stats.stats;
+    if (!stats) return null;
+
+    if (is_dm) {
+      var dm_newest = stats.newest_inbound_direct_message_rx_time;
+      return typeof dm_newest === "number" ? dm_newest : null;
+    }
+
+    var by_channel = stats.channel_newest_inbound_rx_time;
+    if (!by_channel) return null;
+    var newest = by_channel[channel_index];
+    return typeof newest === "number" ? newest : null;
+  }
+
+  /**
    * Scan visible messages and update last-read based on viewport bottom edge.
    * A message is considered "read" when its top edge is inside the visible
    * area of the messages list container (i.e. the user can see it).
@@ -667,6 +762,12 @@
   function update_read_position() {
     var messages_list = document.getElementById("messages-list");
     if (!messages_list) return;
+
+    // Resolved once, at the top, and both branches below write under it. Reading the
+    // conversation separately per write was how a position could be written under one
+    // key having been decided against another.
+    var conversation = current_conversation();
+    if (!conversation) return;
 
     // Whether this pass actually moved the stored position. Both branches below can
     // move it, and the sidebar is refreshed once at the end if either did — see the
@@ -700,13 +801,8 @@
     if (last_read_item) {
       var msg_id = parseInt(last_read_item.dataset.messageId, 10);
       var rx_time = parseInt(last_read_item.dataset.rxTime || "0", 10);
-      if (msg_id && rx_time) {
-        var current = get_last_read(app_state.messages_is_dm, app_state.current_channel_index);
-        // Only update if this message is newer than the stored one
-        if (!current || rx_time > current.rx_time || (rx_time === current.rx_time && msg_id > current.message_id)) {
-          set_last_read(app_state.messages_is_dm, app_state.current_channel_index, msg_id, rx_time);
-          advanced = true;
-        }
+      if (advance_last_read(conversation.is_dm, conversation.channel_index, msg_id, rx_time)) {
+        advanced = true;
       }
     }
 
@@ -733,13 +829,25 @@
         if (newest_item) {
           var newest_id = parseInt(newest_item.dataset.messageId, 10);
           var newest_rx_time = parseInt(newest_item.dataset.rxTime || "0", 10);
-          if (newest_id && newest_rx_time) {
-            var stored = get_last_read(app_state.messages_is_dm, app_state.current_channel_index);
-            if (!stored || newest_rx_time > stored.rx_time ||
-                (newest_rx_time === stored.rx_time && newest_id > stored.message_id)) {
-              set_last_read(app_state.messages_is_dm, app_state.current_channel_index, newest_id, newest_rx_time);
-              advanced = true;
-            }
+
+          // **The end of the list is past every folded row too, not just every drawn
+          // one.** A tapback attached to the last message sits above it in time and
+          // is never an `li`, so storing the last `li`'s rx_time here left the
+          // sidebar comparing against a number this branch could never reach — the
+          // channel stayed bold no matter how often it was read. Taking the ceiling
+          // the sidebar itself is using makes "read to the end" and "nothing waiting"
+          // the same statement, for any row the list decides not to draw.
+          //
+          // Only in this branch: it is guarded by `!messages_has_more_newer` and a
+          // scroll to the absolute bottom, so there is genuinely nothing left to
+          // reach. The threshold scan above must keep using the row it is looking at.
+          var ceiling = get_unread_ceiling(conversation.is_dm, conversation.channel_index);
+          if (ceiling !== null && ceiling > newest_rx_time) {
+            newest_rx_time = ceiling;
+          }
+
+          if (advance_last_read(conversation.is_dm, conversation.channel_index, newest_id, newest_rx_time)) {
+            advanced = true;
           }
         }
       }
@@ -775,8 +883,23 @@
   }
 
   /**
-   * Mark all messages in the list as read up to (and including) the given
-   * message_id / rx_time. Used at render time to stamp already-read items.
+   * Stamp every row at or before a stored read position as read. Used at render time,
+   * so that a channel reopened from a saved position does not come back all-unread.
+   *
+   * **`rx_time` alone, and `<=`** — the same comparison advance_last_read and
+   * has_unread make, so that every test in this mechanism can be read as the same
+   * test. It was `rx < stored.rx_time || (rx === stored.rx_time && mid <= stored
+   * .message_id)`, ranking a tie by the mesh packet id, which is not an ordering.
+   * Within one second — routine at rx_time's resolution — that left rows already read
+   * unstamped, and `scroll_to_first_unread_at_threshold` then took the first of them
+   * as the first unread message and scrolled the reader back to something they had
+   * already seen.
+   *
+   * Rows sharing the stored second are now stamped read. The position was set from a
+   * row in that second, so at worst this over-reaches by under a second, and it
+   * over-reaches towards "read" — the direction that resolves itself rather than the
+   * one that leaves a mark nobody can clear.
+   *
    * @param {HTMLElement} messages_ul - The UL element
    * @param {{ message_id: number, rx_time: number }|null} last_read - Stored position
    */
@@ -786,8 +909,7 @@
     var items = messages_ul.querySelectorAll("li[data-message-id]");
     for (var i = 0; i < items.length; i++) {
       var rx = parseInt(items[i].dataset.rxTime || "0", 10);
-      var mid = parseInt(items[i].dataset.messageId, 10);
-      if (rx < last_read.rx_time || (rx === last_read.rx_time && mid <= last_read.message_id)) {
+      if (rx <= last_read.rx_time) {
         mark_message_read(items[i]);
       }
     }
@@ -799,7 +921,8 @@
    * the read position is persisted even if the user never scrolled.
    */
   function save_read_position_before_leave() {
-    if (app_state.current_view !== "channel" && app_state.current_view !== "direct_messages") return;
+    var conversation = current_conversation();
+    if (!conversation) return;
 
     // `update_read_position` refreshes the sidebar itself when it moves the position,
     // so there is no separate refresh here. There was one, hooked at this level, and
@@ -817,8 +940,8 @@
       if (scroll_pos > 0) {
         app_state.saved_messages_scroll_top = scroll_pos;
         app_state.saved_messages_is_mobile = is_mobile;
-        app_state.saved_messages_channel_index = app_state.current_channel_index;
-        app_state.saved_messages_is_dm = app_state.current_view === "direct_messages";
+        app_state.saved_messages_channel_index = conversation.channel_index;
+        app_state.saved_messages_is_dm = conversation.is_dm;
       }
     }
   }
@@ -1051,8 +1174,10 @@
   RxOnly.handle_breadcrumb_scroll = handle_breadcrumb_scroll;
 
   // Read tracking
+  RxOnly.current_conversation = current_conversation;
   RxOnly.get_last_read = get_last_read;
-  RxOnly.set_last_read = set_last_read;
+  RxOnly.advance_last_read = advance_last_read;
+  RxOnly.get_unread_ceiling = get_unread_ceiling;
   RxOnly.update_read_position = update_read_position;
   RxOnly.mark_message_read = mark_message_read;
   RxOnly.mark_read_up_to = mark_read_up_to;

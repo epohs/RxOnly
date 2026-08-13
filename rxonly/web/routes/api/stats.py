@@ -4,7 +4,7 @@ from flask import Response
 
 from rxonly.config import Config
 from rxonly.web.routes.api import api_bp, json_response
-from rxonly.web.db import get_db_connection, get_meta, node_where
+from rxonly.web.db import get_db_connection, get_meta, node_where, drawn_rows
 
 
 @api_bp.route("/stats", methods=["GET"])
@@ -50,22 +50,52 @@ def get_stats() -> Response:
     cur.execute("SELECT COUNT(*) AS count FROM messages")
     total_messages: int = cur.fetchone()["count"]
 
+    # Two DM counts, because the sidebar and the dashboard are asking two questions.
+    #
+    # `total_direct_messages` is how many rows the archive holds — an archive figure
+    # beside `total_messages`, which is the one that matters when thinking about
+    # MAX_MESSAGES pruning. `direct_message_count` is how many the DM list will draw,
+    # which is what belongs next to a name in the sidebar and is the number that gets
+    # bolded. They differ by the folded reactions, and each is right where it is.
+    # See `channel_counts` below, which is this same figure per channel.
     serve_direct_messages: bool = Config.get("SERVE_DIRECT_MESSAGES", False)
     if serve_direct_messages:
       cur.execute("SELECT COUNT(*) AS count FROM direct_messages")
       total_direct_messages: int = cur.fetchone()["count"]
+
+      cur.execute(
+        f"""
+        SELECT COUNT(*) AS count
+        FROM direct_messages d
+        WHERE {drawn_rows("direct_messages", "d")}
+        """
+      )
+      direct_message_count: int = cur.fetchone()["count"]
     else:
       total_direct_messages: int = 0
+      direct_message_count: int = 0
 
     cur.execute("SELECT COUNT(*) AS count FROM channels")
     total_channels: int = cur.fetchone()["count"]
 
-    # Get message counts per channel
+    # Message counts per channel — rows the channel will *show*, not rows it holds.
+    #
+    # This number is the one the sidebar bolds, so it has to describe the list it is
+    # attached to. Counting every archived row made it describe something else:
+    # Primary read `(9)` while the list drew 7, the other two being reactions folded
+    # onto their parents. A count that names a set the reader cannot page to the end
+    # of is the same mistake `total_nodes` above already avoids.
+    #
+    # The predicate goes in the ON clause rather than a WHERE so a channel whose rows
+    # are all folded away still reports `0` instead of dropping out of the result and
+    # leaving the client to fall back on `|| 0`.
     cur.execute(
-      """
+      f"""
       SELECT c.channel_index, COUNT(m.id) AS message_count
       FROM channels c
-      LEFT JOIN messages m ON c.channel_index = m.channel_index
+      LEFT JOIN messages m
+        ON c.channel_index = m.channel_index
+       AND {drawn_rows("messages", "m")}
       GROUP BY c.channel_index
       """
     )
@@ -77,6 +107,13 @@ def get_stats() -> Response:
     # When each channel last heard from somebody other than this device, as the rx_time
     # the sidebar compares a stored read position against. This is what lets
     # `.channel-link` carry `unread`.
+    #
+    # **Only rows the list will draw** — see `drawn_rows`. This is the half that was
+    # missing and that made the cue unclearable: a reaction is the newest thing in a
+    # channel often, and a reaction is never a row anyone can scroll past, so a mark
+    # raised by one could never be lowered. Every number in this endpoint that the
+    # client compares against a read position, or prints beside a channel name, is
+    # over the same set for exactly that reason.
     #
     # **rx_time alone, and the previous version of this carried `(rx_time, message_id)`
     # as a tiebreak on the belief that the pair was an ordering. It is not, and that
@@ -107,15 +144,20 @@ def get_stats() -> Response:
     # why these are `_inbound` rather than `_newest`. Skipped entirely when the archive
     # has named no local node: `from_node != NULL` is NULL for every row, which would
     # match nothing and report every channel as read.
-    mine = "WHERE from_node != ?" if local_node_id else ""
-    params: tuple[Any, ...] = (local_node_id,) if local_node_id else ()
+    drawn = drawn_rows("messages", "m")
+    if local_node_id:
+      newest_where = f"WHERE m.from_node != ? AND {drawn}"
+      params: tuple[Any, ...] = (local_node_id,)
+    else:
+      newest_where = f"WHERE {drawn}"
+      params = ()
 
     cur.execute(
       f"""
-      SELECT channel_index, MAX(rx_time) AS newest_rx_time
-      FROM messages
-      {mine}
-      GROUP BY channel_index
+      SELECT m.channel_index, MAX(m.rx_time) AS newest_rx_time
+      FROM messages m
+      {newest_where}
+      GROUP BY m.channel_index
       """,
       params,
     )
@@ -132,9 +174,15 @@ def get_stats() -> Response:
     if serve_direct_messages and local_node_id:
       # The DM index is one thread as far as the sidebar is concerned, so this is one
       # value rather than a map. An outbound DM is excluded on the same grounds as an
-      # outbound channel message.
+      # outbound channel message, and a folded reaction on the same grounds as a
+      # folded reaction in a channel — the DM list is the same list code.
       cur.execute(
-        "SELECT MAX(rx_time) AS newest_rx_time FROM direct_messages WHERE from_node != ?",
+        f"""
+        SELECT MAX(d.rx_time) AS newest_rx_time
+        FROM direct_messages d
+        WHERE d.from_node != ?
+          AND {drawn_rows("direct_messages", "d")}
+        """,
         (local_node_id,),
       )
       dm_row = cur.fetchone()
@@ -154,6 +202,7 @@ def get_stats() -> Response:
 
   if serve_direct_messages:
     stats_payload["total_direct_messages"] = total_direct_messages
+    stats_payload["direct_message_count"] = direct_message_count
     # Present and null when there is no inbound DM, rather than absent: the client
     # distinguishes "nothing waiting" from "this build does not report it", and only
     # the second is a reason to leave the sidebar alone.

@@ -218,7 +218,14 @@
         if (!count_span) return;
 
         if (channel_index === "dm") {
-          count_span.textContent = "(" + stats.total_direct_messages + ")";
+          // `direct_message_count`, not `total_direct_messages`: this is the number
+          // the unread cue bolds, so it counts what the DM list draws. The archive
+          // total is a different question and the dashboard tile asks it. A server
+          // too old to report the drawn count falls back to the total, which is what
+          // this printed before and is wrong by only the folded reactions.
+          var dm_count = stats.direct_message_count;
+          if (typeof dm_count !== "number") dm_count = stats.total_direct_messages;
+          count_span.textContent = "(" + dm_count + ")";
         } else {
           var count = channel_counts[parseInt(channel_index, 10)] || 0;
           count_span.textContent = "(" + count + ")";
@@ -240,15 +247,28 @@
    * the last row *in list order* and that row's packet id may be the lower one.
    *
    * A stored position always carries the rx_time of the last row the reader was on, and
-   * that is at or after every inbound row's, so this can never stick. What it gives up
-   * is the tie: an inbound message in the same whole second as the stored position does
-   * not raise the mark and waits for the next one in a later second. Closing that means
-   * storing `id` in the read position, which is a change to read tracking rather than
-   * to this comparison.
+   * that is at or after every inbound row's, so this can never stick — provided both
+   * sides are talking about the same set of rows. They were not: the server reported
+   * the newest row in the channel and the reader could only ever reach the newest row
+   * the list *drew*, which is older whenever the last thing to arrive was a reaction.
+   * `drawn_rows` in web/db.py is the fix for that, and get_unread_ceiling in rxonly.js
+   * is the backstop. This comparison is the third side of the same rule and the only
+   * one of the three that was already right.
+   *
+   * What it gives up is the tie: an inbound message in the same whole second as the
+   * stored position does not raise the mark and waits for the next one in a later
+   * second. Closing that means storing `id` in the read position, which is a change to
+   * read tracking rather than to this comparison.
    *
    * A channel with no stored position has never been opened in this browser, so
    * everything in it is unread — which is what mesh-console does with a channel absent
    * from its cursors.
+   *
+   * `newest_rx_time` absent means the archive has nothing inbound to compare against —
+   * a channel that has only ever heard this device, or one whose inbound rows are all
+   * folded reactions. Nothing is waiting in either case. A server that does not report
+   * the figure at all is a different question and does not reach here; see the guard
+   * in update_channel_unread.
    *
    * @param {number|null|undefined} newest_rx_time
    * @param {{rx_time: number, message_id: number}|null} last_read
@@ -261,27 +281,13 @@
   }
 
   /**
-   * Put `unread` on the channel links that have something waiting, and take it off
-   * the ones that do not.
-   *
-   * Separate from update_channel_counts, which it sits beside in the poll, because
-   * the two answer different questions off different sources: a count comes from the
-   * archive alone, and this needs the archive's newest message *and* a read position
-   * that only this browser has. Read state here is localStorage, so it is per browser
-   * and shares nothing with mesh-console's own read positions on the pi.
-   *
-   * Absent `channel_newest_inbound` means a server that does not report it, and the
-   * sidebar is left exactly as it is — an older build should not have every channel
-   * quietly go unbold.
-   */
-  /**
    * Re-evaluate the unread marks from the last stats the poll saw.
    *
    * Exists so that reading a channel clears its mark immediately instead of at the
-   * next fast poll — see the call in save_read_position_before_leave. The archive's
-   * side of the comparison cannot have changed in the meantime, only the reader's, so
-   * the cached payload is the right thing to compare against and there is no reason
-   * to fetch.
+   * next fast poll — see the callers in advance_last_read's users. The archive's side
+   * of the comparison cannot have changed in the meantime, only the reader's, so the
+   * cached payload is the right thing to compare against and there is no reason to
+   * fetch.
    *
    * A no-op before the first poll has returned, which is the state a page is in for
    * its first moments.
@@ -291,12 +297,36 @@
     update_channel_unread(app_state.last_stats);
   }
 
+  /**
+   * Put `unread` on the channel links that have something waiting, and take it off
+   * the ones that do not.
+   *
+   * Separate from update_channel_counts, which it sits beside in the poll, because
+   * the two answer different questions off different sources: a count comes from the
+   * archive alone, and this needs the archive's newest message *and* a read position
+   * that only this browser has. Read state here is localStorage, so it is per browser
+   * and shares nothing with mesh-console's own read positions on the pi.
+   *
+   * **Three states, and they are not the same state.** A server that does not report a
+   * figure at all leaves the sidebar exactly as it is — an older build should not have
+   * every channel quietly go unbold. A server that reports it and has nothing inbound
+   * means nothing is waiting, and the mark comes off. A figure newer than the stored
+   * position means something is waiting. This used to check the first case for DMs and
+   * not for channels, where a missing key fell through to has_unread and came back
+   * false — the right answer by accident, off the wrong reasoning. `reports_dms` and
+   * `reports_channels` name the distinction so both branches make it the same way.
+   */
   function update_channel_unread(stats_data) {
     if (!stats_data || !stats_data.stats) return;
     if (!dom_elements.channels_list) return;
 
     var stats = stats_data.stats;
-    if (!stats.channel_newest_inbound_rx_time) return;
+
+    // Present-and-null is a server that serves these and has nothing inbound; absent
+    // is a server that does not report them. Only the second is a reason to abstain.
+    var reports_channels = stats.channel_newest_inbound_rx_time != null;
+    var reports_dms = stats.newest_inbound_direct_message_rx_time !== undefined;
+    if (!reports_channels && !reports_dms) return;
 
     dom_elements.channels_list.querySelectorAll(".channel-link").forEach(function(link) {
       var channel_index = link.dataset.channelIndex;
@@ -304,11 +334,10 @@
       var newest_rx_time;
 
       if (is_dm) {
-        // Undefined rather than null when the key is missing, which is a server not
-        // serving DMs at all; null is a server that serves them and has none inbound.
+        if (!reports_dms) return;
         newest_rx_time = stats.newest_inbound_direct_message_rx_time;
-        if (newest_rx_time === undefined) return;
       } else {
+        if (!reports_channels) return;
         newest_rx_time = stats.channel_newest_inbound_rx_time[parseInt(channel_index, 10)];
       }
 
@@ -467,6 +496,15 @@
 
         // Silently append new messages to the bottom
         R.append_messages_to_list(messages_list, messages, is_direct_messages);
+
+        // A row that lands inside the viewport has been read the moment it is drawn,
+        // and this is the only thing in a position to notice. The scroll handler is
+        // the only other caller of update_read_position, and a reader sitting still
+        // watching a channel does not fire it — so a message arriving in full view
+        // marked its channel bold and held it there until they scrolled for no
+        // reason. Rows that land below the fold fail the threshold test inside and
+        // correctly stay unread, which is the behaviour that was wanted all along.
+        R.update_read_position();
       }
 
       // Update has_more_newer from the server response
@@ -913,6 +951,15 @@
     // is what starts the timers and catches it up at that moment.
     if (!document.hidden) {
       start_polling();
+
+      // And one straight away, for the same reason resume_polling does it. The
+      // sidebar is server-rendered and index.html has no way to know this browser's
+      // localStorage, so no channel arrives carrying `unread` — the first fast poll
+      // is what puts the marks on. Left to the interval that is ten seconds during
+      // which a channel with something waiting looks read, and then changes under the
+      // reader. Called after the timers are armed so an await inside cannot delay the
+      // schedule.
+      run_fast_poll();
     }
   }
 

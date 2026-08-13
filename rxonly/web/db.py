@@ -66,6 +66,49 @@ def node_where(*conditions: str) -> str:
   return "WHERE " + " AND ".join(clauses)
 
 
+def drawn_rows(table: str, alias: str) -> str:
+  """A condition for "this row becomes a list item", as the message list decides it.
+
+  The counterpart of `node_where` for messages, and here for the same reason: so a
+  count cannot disagree with the list it counts. The list does not draw one row per
+  archived row — `partition_tapbacks` in messages.js pulls out every tapback that
+  has a parent in the archive and renders it as a pill on that parent, so it never
+  becomes an `li[data-message-id]`.
+
+  **A row that is never an `li` can never be scrolled past.** `update_read_position`
+  reads the reader's position off `li` elements and nothing else, so a folded row
+  counted as the newest thing in a channel sets a mark the reader cannot reach. That
+  was live: Primary's newest inbound row was a '👋' reaction and the newest drawn row
+  was 85 minutes older, so the channel stayed bold however often it was read.
+
+  **`emoji = 1` only, mirroring is_tapback's first branch.** Rows written before
+  schema 0.10.0 carry `emoji IS NULL`, and for those the client falls back to an
+  emoji-only text heuristic — `is_emoji_only`, which uses Intl.Segmenter and has no
+  SQL equivalent. So one legacy reaction can still hold a channel bold. That set is
+  bounded and never added to, and `get_unread_ceiling` in rxonly.js is the backstop
+  that clears it the moment the reader reaches the end of the list.
+
+  The orphan half of the client's rule is expressible exactly: `reply_to_text` comes
+  from a LEFT JOIN against the whole table, so "no parent in the archive" is this
+  EXISTS going false — and such a tapback *is* drawn, as an ordinary row.
+
+  **This rule is maintained by hand in two languages**, here and in `is_tapback` /
+  `is_orphan_tapback` in messages.js, the same arrangement mesh-console's
+  ui/tapbacks.py has with the same JS. Change one, change the others.
+
+  Returns a bare condition, not a clause, because its callers need it in three
+  positions: a WHERE, an AND onto an existing WHERE, and a LEFT JOIN's ON.
+
+  `table` and `alias` are literals from the call sites and never arrive from a
+  request, so interpolating them is not an injection vector.
+  """
+  return f"""
+    NOT (
+      {alias}.reply_to IS NOT NULL
+      AND {alias}.emoji = 1
+      AND EXISTS (SELECT 1 FROM {table} p WHERE p.message_id = {alias}.reply_to)
+    )
+  """
 
 
 class SchemaVersionMismatch(RuntimeError):
