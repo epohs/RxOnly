@@ -74,84 +74,72 @@ def get_stats() -> Response:
       for row in cur.fetchall()
     }
 
-    # The newest message in each channel that somebody else sent, as the
-    # (rx_time, message_id) pair the sidebar compares a stored read position
-    # against. This is what lets `.channel-link` carry `unread`.
+    # When each channel last heard from somebody other than this device, as the rx_time
+    # the sidebar compares a stored read position against. This is what lets
+    # `.channel-link` carry `unread`.
     #
-    # **The pair, not rx_time alone**, because rx_time is whole seconds off the mesh
-    # and ties are ordinary. It is also the pair this app already orders and pages
-    # by, and — the part that matters — the pair `mark_read_up_to` uses to decide a
-    # single row is read. A sidebar comparing something else could bold a channel
-    # every one of whose rows had just been marked read.
+    # **rx_time alone, and the previous version of this carried `(rx_time, message_id)`
+    # as a tiebreak on the belief that the pair was an ordering. It is not, and that
+    # was a bug with symptoms in both directions.** `message_id` is the mesh packet id —
+    # `packet.id`, straight off the radio that sent it — so it is an arbitrary 32-bit
+    # number with no relationship to arrival order. Arrival order is `id`, the
+    # autoincrement key, which is what every message list sorts by:
+    # `ORDER BY m.rx_time, m.id`.
     #
-    # `message_id` rather than `id` for the tiebreak, for the same reason: the stored
-    # position carries `message_id` (it comes off `li.dataset.messageId`), so that is
-    # the value there is anything to compare against.
+    # So within one whole second — routine, since rx_time has one-second resolution —
+    # ranking by message_id picks an arbitrary row rather than the last one. Reported
+    # high, a channel read to the end stayed bold and could not be cleared by reading
+    # it again, because the client's stored position is the *last row in list order* and
+    # that row's packet id may be lower. Reported low, an unread message was hidden.
+    # Both were seen against the real archive.
+    #
+    # Comparing rx_time alone cannot get stuck: the stored position always carries the
+    # rx_time of the last row on screen, which is at or after every inbound row's. What
+    # it gives up is the tie — an inbound message arriving in the same second as the
+    # reader's stored position does not raise the mark, and waits for the next one in a
+    # later second. That is a bounded, self-correcting miss rather than a stuck cue.
+    # Closing it properly means storing `id` beside `message_id` in the read position,
+    # which is a change to read tracking rather than to this endpoint.
     #
     # **Messages from the local node are excluded, and that is not an optimisation.**
     # A message you sent is not one waiting to be read. mesh-console learned this as a
     # bug — sending on a channel raised its own unread badge — and the exclusion is
-    # why this is `_inbound` rather than `_newest`. Skipped entirely when the archive
+    # why these are `_inbound` rather than `_newest`. Skipped entirely when the archive
     # has named no local node: `from_node != NULL` is NULL for every row, which would
     # match nothing and report every channel as read.
     mine = "WHERE from_node != ?" if local_node_id else ""
     params: tuple[Any, ...] = (local_node_id,) if local_node_id else ()
 
-    # ROW_NUMBER over the same ordering rather than MAX(rx_time) with the message_id
-    # picked up beside it. SQLite's bare-aggregate rule would hand back *a* row at the
-    # maximum rx_time, and which one is unspecified among ties — so on exactly the
-    # boundary this pair exists to get right it could return the lower message_id and
-    # report an unread message as read.
     cur.execute(
       f"""
-      SELECT channel_index, rx_time, message_id
-      FROM (
-        SELECT channel_index, rx_time, message_id,
-               ROW_NUMBER() OVER (
-                 PARTITION BY channel_index
-                 ORDER BY rx_time DESC, message_id DESC
-               ) AS rn
-        FROM messages
-        {mine}
-      )
-      WHERE rn = 1
+      SELECT channel_index, MAX(rx_time) AS newest_rx_time
+      FROM messages
+      {mine}
+      GROUP BY channel_index
       """,
       params,
     )
-    channel_newest_inbound: dict[int, dict[str, int]] = {
-      row["channel_index"]: {
-        "rx_time": row["rx_time"],
-        "message_id": row["message_id"],
-      }
+    channel_newest_inbound_rx_time: dict[int, int] = {
+      row["channel_index"]: row["newest_rx_time"]
       for row in cur.fetchall()
-      # A channel whose only traffic is this device's own falls out of the query
-      # above; one with a NULL message_id cannot be compared and is no better than
-      # absent, so both are simply missing and the client reads that as "nothing
-      # waiting".
-      if row["message_id"] is not None and row["rx_time"] is not None
+      # A channel whose only traffic is this device's own falls out of the GROUP BY;
+      # one whose newest row has no rx_time cannot be compared and is no better than
+      # absent. Both are simply missing, and the client reads that as nothing waiting.
+      if row["newest_rx_time"] is not None
     }
 
-    newest_inbound_direct_message: Optional[dict[str, int]] = None
+    newest_inbound_direct_message_rx_time: Optional[int] = None
     if serve_direct_messages and local_node_id:
-      # The DM index is one thread as far as the sidebar is concerned, so there is no
-      # partition here — just the newest inbound row. An outbound DM is excluded on
-      # the same grounds as an outbound channel message.
+      # The DM index is one thread as far as the sidebar is concerned, so this is one
+      # value rather than a map. An outbound DM is excluded on the same grounds as an
+      # outbound channel message.
       cur.execute(
-        """
-        SELECT rx_time, message_id
-        FROM direct_messages
-        WHERE from_node != ?
-        ORDER BY rx_time DESC, message_id DESC
-        LIMIT 1
-        """,
+        "SELECT MAX(rx_time) AS newest_rx_time FROM direct_messages WHERE from_node != ?",
         (local_node_id,),
       )
       dm_row = cur.fetchone()
-      if dm_row and dm_row["message_id"] is not None and dm_row["rx_time"] is not None:
-        newest_inbound_direct_message = {
-          "rx_time": dm_row["rx_time"],
-          "message_id": dm_row["message_id"],
-        }
+      if dm_row and dm_row["newest_rx_time"] is not None:
+        newest_inbound_direct_message_rx_time = dm_row["newest_rx_time"]
 
   finally:
     conn.close()
@@ -161,7 +149,7 @@ def get_stats() -> Response:
     "total_messages": total_messages,
     "total_channels": total_channels,
     "channel_counts": channel_counts,
-    "channel_newest_inbound": channel_newest_inbound,
+    "channel_newest_inbound_rx_time": channel_newest_inbound_rx_time,
   }
 
   if serve_direct_messages:
@@ -169,7 +157,9 @@ def get_stats() -> Response:
     # Present and null when there is no inbound DM, rather than absent: the client
     # distinguishes "nothing waiting" from "this build does not report it", and only
     # the second is a reason to leave the sidebar alone.
-    stats_payload["newest_inbound_direct_message"] = newest_inbound_direct_message
+    stats_payload["newest_inbound_direct_message_rx_time"] = (
+      newest_inbound_direct_message_rx_time
+    )
 
   payload: dict[str, Any] = {
     "local_node": local_node,

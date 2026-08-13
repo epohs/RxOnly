@@ -230,25 +230,34 @@
   /**
    * Whether a channel holds anything the reader has not got to yet.
    *
-   * The comparison is the exact inverse of mark_read_up_to's, deliberately: that
-   * function decides a single row is read when its (rx_time, message_id) is at or
-   * before the stored position, so anything strictly after the stored position is
-   * unread. Writing it any other way lets the sidebar and the rows disagree.
+   * **rx_time only, and this compared (rx_time, message_id) until it was found to be
+   * wrong in both directions against a real archive.** message_id is the mesh packet
+   * id — an arbitrary number from the sending radio — so it does not order anything.
+   * Arrival order is the `id` key, which every message list sorts by and which the
+   * stored read position does not carry. Ranking a tie by packet id therefore compared
+   * two unrelated numbers: sometimes it hid an unread message, and sometimes it left a
+   * channel bold that no amount of reading could clear, because the stored position is
+   * the last row *in list order* and that row's packet id may be the lower one.
+   *
+   * A stored position always carries the rx_time of the last row the reader was on, and
+   * that is at or after every inbound row's, so this can never stick. What it gives up
+   * is the tie: an inbound message in the same whole second as the stored position does
+   * not raise the mark and waits for the next one in a later second. Closing that means
+   * storing `id` in the read position, which is a change to read tracking rather than
+   * to this comparison.
    *
    * A channel with no stored position has never been opened in this browser, so
-   * everything in it is unread — which is what mesh-console does with a channel
-   * absent from its cursors.
+   * everything in it is unread — which is what mesh-console does with a channel absent
+   * from its cursors.
    *
-   * @param {{rx_time: number, message_id: number}|null|undefined} newest
+   * @param {number|null|undefined} newest_rx_time
    * @param {{rx_time: number, message_id: number}|null} last_read
    * @returns {boolean}
    */
-  function has_unread(newest, last_read) {
-    if (!newest) return false;
+  function has_unread(newest_rx_time, last_read) {
+    if (!newest_rx_time) return false;
     if (!last_read) return true;
-    if (newest.rx_time > last_read.rx_time) return true;
-    return newest.rx_time === last_read.rx_time
-      && newest.message_id > last_read.message_id;
+    return newest_rx_time > last_read.rx_time;
   }
 
   /**
@@ -287,24 +296,24 @@
     if (!dom_elements.channels_list) return;
 
     var stats = stats_data.stats;
-    if (!stats.channel_newest_inbound) return;
+    if (!stats.channel_newest_inbound_rx_time) return;
 
     dom_elements.channels_list.querySelectorAll(".channel-link").forEach(function(link) {
       var channel_index = link.dataset.channelIndex;
       var is_dm = channel_index === "dm";
-      var newest;
+      var newest_rx_time;
 
       if (is_dm) {
         // Undefined rather than null when the key is missing, which is a server not
         // serving DMs at all; null is a server that serves them and has none inbound.
-        newest = stats.newest_inbound_direct_message;
-        if (newest === undefined) return;
+        newest_rx_time = stats.newest_inbound_direct_message_rx_time;
+        if (newest_rx_time === undefined) return;
       } else {
-        newest = stats.channel_newest_inbound[parseInt(channel_index, 10)];
+        newest_rx_time = stats.channel_newest_inbound_rx_time[parseInt(channel_index, 10)];
       }
 
       var last_read = R.get_last_read(is_dm, is_dm ? null : parseInt(channel_index, 10));
-      link.classList.toggle("unread", has_unread(newest, last_read));
+      link.classList.toggle("unread", has_unread(newest_rx_time, last_read));
     });
   }
 
