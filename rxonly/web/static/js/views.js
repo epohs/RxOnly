@@ -227,6 +227,87 @@
     }
   }
 
+  /**
+   * Whether a channel holds anything the reader has not got to yet.
+   *
+   * The comparison is the exact inverse of mark_read_up_to's, deliberately: that
+   * function decides a single row is read when its (rx_time, message_id) is at or
+   * before the stored position, so anything strictly after the stored position is
+   * unread. Writing it any other way lets the sidebar and the rows disagree.
+   *
+   * A channel with no stored position has never been opened in this browser, so
+   * everything in it is unread — which is what mesh-console does with a channel
+   * absent from its cursors.
+   *
+   * @param {{rx_time: number, message_id: number}|null|undefined} newest
+   * @param {{rx_time: number, message_id: number}|null} last_read
+   * @returns {boolean}
+   */
+  function has_unread(newest, last_read) {
+    if (!newest) return false;
+    if (!last_read) return true;
+    if (newest.rx_time > last_read.rx_time) return true;
+    return newest.rx_time === last_read.rx_time
+      && newest.message_id > last_read.message_id;
+  }
+
+  /**
+   * Put `unread` on the channel links that have something waiting, and take it off
+   * the ones that do not.
+   *
+   * Separate from update_channel_counts, which it sits beside in the poll, because
+   * the two answer different questions off different sources: a count comes from the
+   * archive alone, and this needs the archive's newest message *and* a read position
+   * that only this browser has. Read state here is localStorage, so it is per browser
+   * and shares nothing with mesh-console's own read positions on the pi.
+   *
+   * Absent `channel_newest_inbound` means a server that does not report it, and the
+   * sidebar is left exactly as it is — an older build should not have every channel
+   * quietly go unbold.
+   */
+  /**
+   * Re-evaluate the unread marks from the last stats the poll saw.
+   *
+   * Exists so that reading a channel clears its mark immediately instead of at the
+   * next fast poll — see the call in save_read_position_before_leave. The archive's
+   * side of the comparison cannot have changed in the meantime, only the reader's, so
+   * the cached payload is the right thing to compare against and there is no reason
+   * to fetch.
+   *
+   * A no-op before the first poll has returned, which is the state a page is in for
+   * its first moments.
+   */
+  function refresh_channel_unread() {
+    if (!app_state.last_stats) return;
+    update_channel_unread(app_state.last_stats);
+  }
+
+  function update_channel_unread(stats_data) {
+    if (!stats_data || !stats_data.stats) return;
+    if (!dom_elements.channels_list) return;
+
+    var stats = stats_data.stats;
+    if (!stats.channel_newest_inbound) return;
+
+    dom_elements.channels_list.querySelectorAll(".channel-link").forEach(function(link) {
+      var channel_index = link.dataset.channelIndex;
+      var is_dm = channel_index === "dm";
+      var newest;
+
+      if (is_dm) {
+        // Undefined rather than null when the key is missing, which is a server not
+        // serving DMs at all; null is a server that serves them and has none inbound.
+        newest = stats.newest_inbound_direct_message;
+        if (newest === undefined) return;
+      } else {
+        newest = stats.channel_newest_inbound[parseInt(channel_index, 10)];
+      }
+
+      var last_read = R.get_last_read(is_dm, is_dm ? null : parseInt(channel_index, 10));
+      link.classList.toggle("unread", has_unread(newest, last_read));
+    });
+  }
+
   function update_dashboard_stats(stats_data) {
     if (app_state.current_view !== "home") return;
     if (!stats_data || !stats_data.stats) return;
@@ -267,10 +348,15 @@
       app_state.poll_failure_count = 0;
       hide_connection_error();
 
+      // Kept so the unread marks can be recomputed when a read position moves without
+      // waiting for the next poll — see refresh_channel_unread.
+      app_state.last_stats = stats_data;
+
       check_for_state_change(stats_data);
       R.update_page_title(stats_data);
       update_sidebar_counts(stats_data);
       update_channel_counts(stats_data);
+      update_channel_unread(stats_data);
       update_dashboard_stats(stats_data);
 
     } catch (error) {
@@ -820,6 +906,17 @@
       start_polling();
     }
   }
+
+  /* ------------------------------------------
+     Namespace Exports
+     ------------------------------------------ */
+
+  // The only thing this file exposes, and it is exposed for one caller:
+  // save_read_position_before_leave in rxonly.js, which knows the read position has
+  // moved but nothing about stats. Everything else here is reached through the DOM
+  // events and timers set up below.
+  R.refresh_channel_unread = refresh_channel_unread;
+
 
   // Run on DOM ready
   if (document.readyState === "loading") {

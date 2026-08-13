@@ -50,6 +50,9 @@
     fast_poll_timer: null,
     slow_poll_timer: null,
     poll_failure_count: 0,
+    // The most recent /api/stats payload, kept so the unread marks can be recomputed
+    // when a read position moves without waiting for the next poll.
+    last_stats: null,
     known_local_node_id: null,
     known_first_seen: null,
 
@@ -774,6 +777,17 @@
     if (app_state.current_view !== "channel" && app_state.current_view !== "direct_messages") return;
 
     update_read_position();
+
+    // The channel just read should stop looking unread now rather than at the next
+    // fast poll, which is up to ten seconds of the sidebar contradicting what the
+    // reader has just finished doing. This is the one place that means "the read
+    // position moved", so hooking it here covers every route out of a messages view
+    // rather than each of the six call sites.
+    //
+    // refresh_channel_unread is defined in views.js; safe to call at runtime since
+    // all files are loaded before any user interaction — the same reasoning as the
+    // clear_pending_tapbacks call above.
+    RxOnly.refresh_channel_unread();
 
     // Save scroll position for restoration when returning.
     // On desktop the messages list scrolls; on mobile the window scrolls.
