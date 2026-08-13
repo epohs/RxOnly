@@ -668,6 +668,11 @@
     var messages_list = document.getElementById("messages-list");
     if (!messages_list) return;
 
+    // Whether this pass actually moved the stored position. Both branches below can
+    // move it, and the sidebar is refreshed once at the end if either did — see the
+    // note there for why this is gated rather than called unconditionally.
+    var advanced = false;
+
     var container_rect = messages_list.getBoundingClientRect();
 
     // Use the lesser of the container bottom and the viewport bottom so that
@@ -700,6 +705,7 @@
         // Only update if this message is newer than the stored one
         if (!current || rx_time > current.rx_time || (rx_time === current.rx_time && msg_id > current.message_id)) {
           set_last_read(app_state.messages_is_dm, app_state.current_channel_index, msg_id, rx_time);
+          advanced = true;
         }
       }
     }
@@ -732,10 +738,29 @@
             if (!stored || newest_rx_time > stored.rx_time ||
                 (newest_rx_time === stored.rx_time && newest_id > stored.message_id)) {
               set_last_read(app_state.messages_is_dm, app_state.current_channel_index, newest_id, newest_rx_time);
+              advanced = true;
             }
           }
         }
       }
+    }
+
+    // The channel being read stops looking unread the moment it is read, rather than
+    // at the next fast poll or — as it was — only once the reader navigated away.
+    // Scrolling to the bottom of a channel is exactly what the grace block above
+    // treats as reading all of it, so that is the moment the sidebar has to agree.
+    //
+    // **Gated on the position having moved, because this runs on every scroll event.**
+    // `handle_messages_scroll` calls it undebounced — the debounce there is only for
+    // the poll-pause flag — so an unconditional refresh would re-read localStorage for
+    // every channel several times a second while a reader scrolls. Nothing can change
+    // the unread state but the position moving, so nothing else needs to trigger it.
+    //
+    // refresh_channel_unread is defined in views.js; safe to call at runtime since all
+    // files are loaded before any user interaction — the same reasoning as the
+    // clear_pending_tapbacks call further down.
+    if (advanced) {
+      RxOnly.refresh_channel_unread();
     }
   }
 
@@ -776,18 +801,12 @@
   function save_read_position_before_leave() {
     if (app_state.current_view !== "channel" && app_state.current_view !== "direct_messages") return;
 
+    // `update_read_position` refreshes the sidebar itself when it moves the position,
+    // so there is no separate refresh here. There was one, hooked at this level, and
+    // that was the bug: leaving a view is the *last* moment a channel stops being
+    // unread, not the first, so a reader who scrolled to the bottom of a channel
+    // watched its count stay bold until they navigated somewhere else.
     update_read_position();
-
-    // The channel just read should stop looking unread now rather than at the next
-    // fast poll, which is up to ten seconds of the sidebar contradicting what the
-    // reader has just finished doing. This is the one place that means "the read
-    // position moved", so hooking it here covers every route out of a messages view
-    // rather than each of the six call sites.
-    //
-    // refresh_channel_unread is defined in views.js; safe to call at runtime since
-    // all files are loaded before any user interaction — the same reasoning as the
-    // clear_pending_tapbacks call above.
-    RxOnly.refresh_channel_unread();
 
     // Save scroll position for restoration when returning.
     // On desktop the messages list scrolls; on mobile the window scrolls.
