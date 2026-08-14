@@ -438,7 +438,7 @@ body {
    reaching the end of a list mean "nothing waiting" whatever the list folded away. */
 
 .channel-link.unread > .channel-count {
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .node-link {
