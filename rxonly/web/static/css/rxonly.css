@@ -852,6 +852,27 @@ body:not(.no-js) .nodes-search-reveal {
   text-decoration: underline;
 }
 
+/* A message this device sent, distinguished from one it received.
+ *
+ * One cue, and it is the sender's own name — the arrangement mesh-console
+ * arrived at after trying an accent bar and the word "You" beside it (see the
+ * MessageHeader note in its mesh_console.tcss). Its `$rx-outbound` green was
+ * derived because this palette had no counterpart, and this rule deliberately
+ * does not import it: Jason's call was to spend a colour the palette already
+ * has. --color-text-secondary is the nearest existing statement — in the dark
+ * theme it is the same green-teal family the console's outbound sits in, and
+ * in the light theme it holds the 3.80:1 the palette notes above record. It
+ * also dresses the chrome (device bar, table headers), which the console's
+ * derivation avoided; with reuse as the constraint, that is the trade.
+ *
+ * BEM variant naming, not a state class: which kind of sender this permanently
+ * is, the same shape as .channel-link--dm. Applied by create_message_item from
+ * the server-rendered data-local-node-id on <body>. */
+
+.message-from--outbound {
+  color: var(--color-text-secondary);
+}
+
 .message-from.node-unknown {
   cursor: default;
 }

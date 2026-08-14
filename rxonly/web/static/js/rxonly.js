@@ -203,6 +203,15 @@
     }
   }
 
+  /**
+   * The attached device's node id, or null when the archive has not named one.
+   * Server-rendered onto <body> rather than read off the stats poll, so the very
+   * first message list can already say which rows are this device's own.
+   */
+  function get_local_node_id() {
+    return dom_elements.body.dataset.localNodeId || null;
+  }
+
   function get_node_url_template() {
     return dom_elements.body.dataset.apiNodeUrlTemplate || "/api/nodes/__NODE_ID__";
   }
@@ -1239,6 +1248,7 @@
   RxOnly.format_iso_timestamp = format_iso_timestamp;
   RxOnly.format_time_short = format_time_short;
   RxOnly.escape_html = escape_html;
+  RxOnly.get_local_node_id = get_local_node_id;
   RxOnly.build_node_url = build_node_url;
   RxOnly.build_message_url = build_message_url;
   RxOnly.format_node_display_name = format_node_display_name;

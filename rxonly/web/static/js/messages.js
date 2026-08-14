@@ -362,6 +362,14 @@
       if (message.from_node) {
         from_link.href = R.build_node_url(message.from_node);
         from_link.dataset.nodeId = message.from_node;
+        // A message this device sent, distinguished from one it received — the
+        // cue is the sender's own name in a different colour, which is all that
+        // is left of mesh-console's three marks for this one fact (see the
+        // MessageHeader note in its mesh_console.tcss). Channel rows and DM
+        // rows alike, because "yours" is the same fact in both.
+        if (message.from_node === R.get_local_node_id()) {
+          from_link.classList.add("message-from--outbound");
+        }
       } else {
         // Unknown node — replace <a> with <span>
         var span = document.createElement("span");

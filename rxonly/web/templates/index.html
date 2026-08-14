@@ -25,6 +25,11 @@
 <body class="no-js" data-api-node-url-template="{{ url_for('api.get_node', node_id='__NODE_ID__') }}"
       data-api-nodes-url="{{ url_for('api.get_nodes') }}"
       data-api-stats-url="{{ url_for('api.get_stats') }}"
+      {# Which node is "you", so a message row can say so the moment it renders —
+         waiting on the first stats poll would draw the first screenful unmarked.
+         A device swap reloads the page (check_for_state_change), so this cannot
+         go stale. #}
+      {% if local_node %}data-local-node-id="{{ local_node.node_id }}"{% endif %}
       data-api-message-url-template="{{ url_for('api.get_message', message_id=0) | replace('0', '__MESSAGE_ID__') }}"
       {% if serve_direct_messages %}data-api-dm-url-template="{{ url_for('api.get_direct_message', message_id=0) | replace('0', '__MESSAGE_ID__') }}"
       data-api-dm-conversations-url="{{ url_for('api.get_dm_conversations') }}"{% endif %}>
