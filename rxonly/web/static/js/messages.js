@@ -588,15 +588,17 @@
   }
 
   /**
-   * Shared logic for loading and displaying messages (channels or DMs).
+   * Shared logic for loading and displaying messages (channels or conversations).
    * @param {Object} options
    * @param {boolean} options.is_dm
    * @param {number|null} options.channel_index
+   * @param {string|null} [options.peer] - The conversation's peer (DMs only)
    * @param {string} options.heading - Display heading text
    */
   async function render_messages_view(options) {
     var is_dm = options.is_dm;
     var channel_index = options.channel_index;
+    var peer = options.peer || null;
     var heading_text = options.heading;
 
     R.reset_message_state();
@@ -605,7 +607,7 @@
 
     try {
       // Check localStorage for last read position
-      var last_read = R.get_last_read(is_dm, channel_index);
+      var last_read = R.get_last_read(is_dm, channel_index, peer);
 
       if (last_read) {
         // Resume mode: fetch a page ending at the last-read message,
@@ -614,13 +616,14 @@
         var context_data = await R.fetch_message_page({
           is_dm: is_dm,
           channel_index: channel_index,
+          peer: peer,
           before_rx_time: last_read.rx_time + 1,
         });
         var context_messages = is_dm ? context_data.direct_messages : context_data.messages;
 
         if (context_messages.length === 0) {
           // Last-read was pruned — fall through to fresh load below
-          await render_messages_fresh(is_dm, channel_index, heading_text);
+          await render_messages_fresh(is_dm, channel_index, peer, heading_text);
           return;
         }
 
@@ -628,6 +631,7 @@
         var newer_data = await R.fetch_message_page({
           is_dm: is_dm,
           channel_index: channel_index,
+          peer: peer,
           after_rx_time: last_read.rx_time,
         });
         var newer_messages = is_dm ? newer_data.direct_messages : newer_data.messages;
@@ -654,7 +658,7 @@
 
         // Restore saved scroll position if returning to the same channel,
         // otherwise position the first unread message at the read threshold.
-        var saved_scroll = R.consume_saved_scroll_position(is_dm, channel_index);
+        var saved_scroll = R.consume_saved_scroll_position(is_dm, channel_index, peer);
         if (saved_scroll !== null && messages_ul) {
           if (saved_scroll.is_mobile) {
             window.scrollTo(0, saved_scroll.scroll_top);
@@ -667,7 +671,7 @@
 
       } else {
         // No last-read: fresh load (oldest messages first)
-        await render_messages_fresh(is_dm, channel_index, heading_text);
+        await render_messages_fresh(is_dm, channel_index, peer, heading_text);
       }
 
     } catch (error) {
@@ -679,13 +683,14 @@
   /**
    * Fresh load: no last-read position, show the newest messages.
    */
-  async function render_messages_fresh(is_dm, channel_index, heading_text) {
+  async function render_messages_fresh(is_dm, channel_index, peer, heading_text) {
     // No last-read position: load from the oldest messages so the user
     // can read the channel from the beginning. Nothing is pre-marked as read;
     // the user marks messages read by scrolling past the threshold.
     var data = await R.fetch_message_page({
       is_dm: is_dm,
       channel_index: channel_index,
+      peer: peer,
     });
     var messages = is_dm ? data.direct_messages : data.messages;
 
@@ -801,6 +806,7 @@
     app_state.current_channel_index = channel_index;
     app_state.current_channel_name = channel_name;
     app_state.current_channel_url = channel_api_url;
+    app_state.current_peer = null;
     app_state.current_node_url = null;
     dom_elements.app_layout.classList.add("viewing-detail");
 
@@ -822,14 +828,213 @@
     return true;
   }
 
+  /* ------------------------------------------
+     Direct Messages (Conversation Index)
+     ------------------------------------------ */
+
+  /**
+   * The peer's short name, or the hex id when the archive has no name for them.
+   * Short name alone rather than the full display name, for the reason
+   * mesh-console's ConversationItem gives: this is a list of people you have
+   * talked to, not a destination about to be addressed.
+   */
+  function conversation_peer_label(conversation) {
+    return conversation.peer_short_name || conversation.peer;
+  }
+
+  /**
+   * This device's short name, for the left-hand side of a row's title. Falls
+   * back through the long name to the hex id the way every other node label
+   * does — and to "You" when the server sent no local node at all, which is
+   * also the case where there are no conversations to draw under it.
+   */
+  function conversation_local_label(local_node) {
+    if (!local_node) return "You";
+    return local_node.short_name || local_node.long_name || local_node.node_id;
+  }
+
+  /**
+   * "8/14 11:17 AM · 3 messages", each part left out when it has nothing to say.
+   * No unread count on the end where mesh-console has one: it counts unread
+   * server-side from cursors it owns, and this browser's read state never
+   * reaches the server — unread here is the row's bold cue, a yes or no, which
+   * is all this interface has ever said about unread anywhere.
+   */
+  function format_conversation_summary(conversation) {
+    var count = conversation.message_count || 0;
+    var count_text = count + " message" + (count !== 1 ? "s" : "");
+    var time = R.format_time_short(conversation.newest_rx_time);
+    return time ? time + " · " + count_text : count_text;
+  }
+
+  /**
+   * Whether a conversation row gets the unread bold, from the row's own data.
+   * The same comparison the sidebar makes (has_unread in views.js, called at
+   * runtime like refresh_channel_unread is from rxonly.js), fed the conversation
+   * payload's newest inbound drawn rx_time instead of the stats map — the two
+   * report the same figure from the same query shape.
+   */
+  function conversation_has_unread(conversation) {
+    var last_read = R.get_last_read(true, null, conversation.peer);
+    return R.has_unread(conversation.newest_inbound_rx_time, last_read);
+  }
+
+  /**
+   * Create a conversation index row from one conversations-payload entry.
+   * Built by hand rather than through a field map because every part of both
+   * lines is computed from more than one field.
+   */
+  function create_conversation_item(conversation, local_label) {
+    var clone = R.populate_template("template-conversation-item", {}, {});
+    if (!clone) return null;
+
+    var link = clone.querySelector(".conversation-link");
+    if (!link) return null;
+
+    // The API url as the href, like every channel and node link — the click is
+    // intercepted into the hash router, and without JS the link still resolves
+    // to the thread's JSON.
+    link.href = R.get_direct_messages_url() + "?peer=" + encodeURIComponent(conversation.peer);
+    link.dataset.peer = conversation.peer;
+    link.classList.toggle("unread", conversation_has_unread(conversation));
+
+    var title = link.querySelector(".conversation-title");
+    if (title) {
+      title.textContent = local_label + " › " + conversation_peer_label(conversation);
+    }
+
+    var summary = link.querySelector(".conversation-summary");
+    if (summary) {
+      summary.textContent = format_conversation_summary(conversation);
+    }
+
+    return clone;
+  }
+
+  /**
+   * Build the conversation index DOM and insert it into main content.
+   */
+  function render_conversations_dom(data) {
+    var list_content = R.populate_template("template-conversations-list", {}, {});
+    if (!list_content) return;
+
+    var heading = list_content.querySelector("[data-field='heading']");
+    if (heading) heading.textContent = "Direct Messages";
+
+    var conversations_ul = list_content.querySelector("#conversations-list");
+    if (conversations_ul) {
+      var local_label = conversation_local_label(data.local_node);
+      var fragment = document.createDocumentFragment();
+
+      data.conversations.forEach(function(conversation) {
+        var item = create_conversation_item(conversation, local_label);
+        if (item) fragment.appendChild(item);
+      });
+
+      if (data.conversations.length === 0) {
+        var empty_li = document.createElement("li");
+        empty_li.className = "empty-state";
+        empty_li.textContent = "No direct messages";
+        fragment.appendChild(empty_li);
+      }
+
+      conversations_ul.appendChild(fragment);
+    }
+
+    dom_elements.main_content.innerHTML = "";
+    dom_elements.main_content.appendChild(list_content);
+  }
+
+  /**
+   * Refresh the conversation index in place from the slow poll.
+   *
+   * The same rebuild-with-reuse update_nodes_list does, keyed by peer: rows that
+   * are still here are updated and re-appended in the fresh order — recency, and
+   * a message arriving is exactly what moves somebody up it — new peers get new
+   * rows, and rows whose peer dropped out are simply not carried over. Scroll is
+   * anchored the same way, so a reader partway down the list is not yanked.
+   */
+  async function update_conversations_list() {
+    var conversations_ul = document.getElementById("conversations-list");
+    if (!conversations_ul) return;
+
+    try {
+      var data = await R.fetch_conversations();
+      var local_label = conversation_local_label(data.local_node);
+
+      var was_at_top = R.is_at_scroll_top(conversations_ul);
+      var anchor = was_at_top ? null : R.get_scroll_anchor(conversations_ul);
+
+      var existing_items = {};
+      conversations_ul.querySelectorAll("li").forEach(function(li) {
+        var link = li.querySelector(".conversation-link");
+        if (link) existing_items[link.dataset.peer] = li;
+      });
+
+      var fragment = document.createDocumentFragment();
+
+      data.conversations.forEach(function(conversation) {
+        var li = existing_items[conversation.peer];
+        if (li) {
+          var link = li.querySelector(".conversation-link");
+          var title = li.querySelector(".conversation-title");
+          var summary = li.querySelector(".conversation-summary");
+          // The title is re-said even when nothing else moved, because its
+          // left half is the local node's short name, which arrives late on a
+          // fresh archive — the same reason mesh-console's set_conversation
+          // always updates it.
+          if (title) title.textContent = local_label + " › " + conversation_peer_label(conversation);
+          if (summary) summary.textContent = format_conversation_summary(conversation);
+          if (link) link.classList.toggle("unread", conversation_has_unread(conversation));
+          fragment.appendChild(li);
+        } else {
+          var item = create_conversation_item(conversation, local_label);
+          if (item) fragment.appendChild(item);
+        }
+      });
+
+      if (data.conversations.length === 0) {
+        var empty_li = document.createElement("li");
+        empty_li.className = "empty-state";
+        empty_li.textContent = "No direct messages";
+        fragment.appendChild(empty_li);
+      }
+
+      conversations_ul.innerHTML = "";
+      conversations_ul.appendChild(fragment);
+
+      if (was_at_top) {
+        conversations_ul.scrollTop = 0;
+      } else if (anchor) {
+        R.restore_scroll_anchor(conversations_ul, anchor);
+      }
+
+    } catch (error) {
+      console.error("Failed to update conversations list:", error);
+    }
+  }
+
+  /**
+   * Show the direct message index: who this device has talked to, one row per
+   * person, in place of the flat all-conversations-at-once list this view used
+   * to be. Each row opens that peer's thread through show_conversation.
+   */
   async function show_direct_messages(dm_api_url) {
     R.save_read_position_before_leave();
     app_state.current_view = "direct_messages";
     app_state.current_channel_index = null;
     app_state.current_channel_name = "Direct Messages";
     app_state.current_channel_url = dm_api_url;
+    app_state.current_peer = null;
     app_state.current_node_url = null;
     dom_elements.app_layout.classList.add("viewing-detail");
+
+    // Nothing here is a message, so nothing here is paged. Cleared rather than
+    // left holding whatever thread was open last, so a stale has_more_newer
+    // cannot leave the jump button pointing at somewhere this view cannot go —
+    // mesh-console's open_direct_index clears its window state for the same
+    // reason.
+    R.reset_message_state();
 
     R.clear_sidebar_active();
     if (dom_elements.channels_list) {
@@ -842,10 +1047,73 @@
       { label: "Direct Messages", href: dm_api_url, view: "direct_messages" },
     ]);
 
+    dom_elements.main_content.innerHTML = "<p>Loading...</p>";
+
+    try {
+      var data = await R.fetch_conversations();
+      render_conversations_dom(data);
+    } catch (error) {
+      dom_elements.main_content.innerHTML = '<p class="error-state">Error loading direct messages: ' + R.escape_html(error.message) + '</p>';
+    }
+  }
+
+  /**
+   * Show one conversation: the direct messages with one peer, and nobody else.
+   * The same message-list machinery a channel uses — resume window, read
+   * threshold, pagination, jump button — pointed at one thread.
+   */
+  async function show_conversation(peer) {
+    R.save_read_position_before_leave();
+
+    // Resolve the peer's display name before anything renders, the way
+    // mesh-console's open_conversation does. A node the archive cannot name
+    // still has a thread worth opening; the hex id is a serviceable heading.
+    var heading_text = peer;
+    try {
+      var node_response = await fetch(R.build_node_url(peer));
+      if (node_response.ok) {
+        var node = await node_response.json();
+        heading_text = R.format_node_display_name(node);
+      }
+    } catch (error) {
+      // Leave the hex id standing.
+    }
+
+    var thread_url = R.get_direct_messages_url() + "?peer=" + encodeURIComponent(peer);
+
+    app_state.current_view = "conversation";
+    app_state.current_channel_index = null;
+    app_state.current_channel_name = heading_text;
+    app_state.current_channel_url = thread_url;
+    app_state.current_peer = peer;
+    app_state.current_node_url = null;
+    dom_elements.app_layout.classList.add("viewing-detail");
+
+    // The sidebar has no entry for one conversation; its Direct Messages entry
+    // is the nearest ancestor, so it keeps the active mark and the breadcrumbs
+    // carry the rest of the way — the reasoning mesh-console gives for its
+    // conversation trail.
+    R.clear_sidebar_active();
+    var dm_href = "#";
+    if (dom_elements.channels_list) {
+      var dm_el = dom_elements.channels_list.querySelector('.channel-link[data-channel-index="dm"]');
+      if (dm_el) {
+        dm_el.classList.add("active");
+        dm_href = dm_el.getAttribute("href");
+      }
+    }
+
+    R.set_breadcrumbs([
+      { label: "Dashboard", href: "/", view: "home" },
+      { label: "Direct Messages", href: dm_href, view: "direct_messages" },
+      { label: heading_text, href: thread_url, view: "conversation" },
+    ]);
+
     await render_messages_view({
       is_dm: true,
       channel_index: null,
-      heading: "Direct Messages",
+      peer: peer,
+      heading: heading_text,
     });
   }
 
@@ -857,6 +1125,7 @@
     app_state.previous_channel_index = app_state.current_channel_index;
     app_state.previous_channel_name = app_state.current_channel_name;
     app_state.previous_channel_url = app_state.current_channel_url;
+    app_state.previous_peer = app_state.current_peer;
 
     app_state.current_view = "message";
     app_state.current_node_url = null;
@@ -883,6 +1152,22 @@
           label: app_state.previous_channel_name,
           href: app_state.previous_channel_url,
           view: "channel",
+        });
+      } else if (app_state.previous_view === "conversation" && app_state.previous_channel_name) {
+        // A detail reached from inside a thread walks back through both steps:
+        // the index of correspondents, then the thread itself.
+        var index_link = dom_elements.channels_list
+          ? dom_elements.channels_list.querySelector('.channel-link[data-channel-index="dm"]')
+          : null;
+        crumbs.push({
+          label: "Direct Messages",
+          href: index_link ? index_link.getAttribute("href") : "#",
+          view: "direct_messages",
+        });
+        crumbs.push({
+          label: app_state.previous_channel_name,
+          href: app_state.previous_channel_url,
+          view: "conversation",
         });
       } else if (app_state.previous_view === "direct_messages") {
         crumbs.push({
@@ -968,6 +1253,7 @@
       var data = await R.fetch_message_page({
         is_dm: is_dm,
         channel_index: channel_index,
+        peer: conversation.peer,
         newest: true,
       });
 
@@ -1008,11 +1294,11 @@
       if (messages.length > 0) {
         var newest_msg = messages[messages.length - 1];
         var newest_rx_time = newest_msg.rx_time;
-        var ceiling = R.get_unread_ceiling(is_dm, channel_index);
+        var ceiling = R.get_unread_ceiling(is_dm, channel_index, conversation.peer);
         if (ceiling !== null && ceiling > newest_rx_time) {
           newest_rx_time = ceiling;
         }
-        if (R.advance_last_read(is_dm, channel_index, newest_msg.message_id, newest_rx_time)) {
+        if (R.advance_last_read(is_dm, channel_index, conversation.peer, newest_msg.message_id, newest_rx_time)) {
           R.refresh_channel_unread();
         }
       }
@@ -1050,6 +1336,7 @@
       var data = await R.fetch_message_page({
         is_dm: is_dm,
         channel_index: channel_index,
+        peer: conversation.peer,
         before_rx_time: app_state.messages_oldest_rx_time,
       });
 
@@ -1100,6 +1387,7 @@
       var data = await R.fetch_message_page({
         is_dm: is_dm,
         channel_index: channel_index,
+        peer: conversation.peer,
         after_rx_time: app_state.messages_newest_rx_time,
       });
 
@@ -1172,8 +1460,8 @@
    * Called from the global window scroll listener in views.js.
    */
   function handle_messages_window_scroll() {
-    // Only act when viewing a messages list (channel or DM)
-    if (app_state.current_view !== "channel" && app_state.current_view !== "direct_messages") return;
+    // Only act when viewing a messages list (channel or conversation)
+    if (app_state.current_view !== "channel" && app_state.current_view !== "conversation") return;
 
     // Only act on mobile layout where messages-list doesn't scroll internally
     var messages_list = document.getElementById("messages-list");
@@ -1236,6 +1524,8 @@
   R.clear_pending_tapbacks = clear_pending_tapbacks;
   R.show_channel_messages = show_channel_messages;
   R.show_direct_messages = show_direct_messages;
+  R.show_conversation = show_conversation;
+  R.update_conversations_list = update_conversations_list;
   R.show_message_detail = show_message_detail;
   R.append_messages_to_list = append_messages_to_list;
   R.update_jump_to_newest_button = update_jump_to_newest_button;

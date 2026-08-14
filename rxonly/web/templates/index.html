@@ -26,7 +26,8 @@
       data-api-nodes-url="{{ url_for('api.get_nodes') }}"
       data-api-stats-url="{{ url_for('api.get_stats') }}"
       data-api-message-url-template="{{ url_for('api.get_message', message_id=0) | replace('0', '__MESSAGE_ID__') }}"
-      {% if serve_direct_messages %}data-api-dm-url-template="{{ url_for('api.get_direct_message', message_id=0) | replace('0', '__MESSAGE_ID__') }}"{% endif %}>
+      {% if serve_direct_messages %}data-api-dm-url-template="{{ url_for('api.get_direct_message', message_id=0) | replace('0', '__MESSAGE_ID__') }}"
+      data-api-dm-conversations-url="{{ url_for('api.get_dm_conversations') }}"{% endif %}>
 
   <header class="device-bar">
     <h1><a href="{{ url_for('dashboard.index') }}" class="device-bar-home">{{ device_name }}</a></h1>
@@ -133,6 +134,7 @@
   {% include "partials/message_item.html" %}
   {% include "partials/messages_list.html" %}
   {% include "partials/message_detail.html" %}
+  {% include "partials/conversations_list.html" %}
 
 
   {% if debug or not js_filename %}

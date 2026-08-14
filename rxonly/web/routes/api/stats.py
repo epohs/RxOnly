@@ -170,24 +170,37 @@ def get_stats() -> Response:
       if row["newest_rx_time"] is not None
     }
 
-    newest_inbound_direct_message_rx_time: Optional[int] = None
+    peer_newest_inbound_rx_time: dict[str, int] = {}
     if serve_direct_messages and local_node_id:
-      # The DM index is one thread as far as the sidebar is concerned, so this is one
-      # value rather than a map. An outbound DM is excluded on the same grounds as an
-      # outbound channel message, and a folded reaction on the same grounds as a
-      # folded reaction in a channel — the DM list is the same list code.
+      # Per peer, because the DM view is threaded and each thread carries its own
+      # read position (`rxonly_last_read_dm_<peer>`). This was one value when the
+      # DM list was one flat thread; a scalar cannot say "conversation B is still
+      # waiting" once reading conversation A no longer reads B. The channel map
+      # above is the same shape keyed by channel_index; this is it keyed by peer.
+      #
+      # An outbound DM is excluded on the same grounds as an outbound channel
+      # message, and a folded reaction on the same grounds as a folded reaction
+      # in a channel — a thread is the same list code. And because only inbound
+      # rows are asked about, the peer needs no CASE: the collector archives an
+      # inbound DM only when it is addressed to the local node, so the sender
+      # *is* the other end of the thread by construction. A NULL from_node fails
+      # `!= ?` and drops out, which is right — a row with no sender cannot be
+      # attributed to a conversation, let alone be waiting in one.
       cur.execute(
         f"""
-        SELECT MAX(d.rx_time) AS newest_rx_time
+        SELECT d.from_node AS peer, MAX(d.rx_time) AS newest_rx_time
         FROM direct_messages d
         WHERE d.from_node != ?
           AND {drawn_rows("direct_messages", "d")}
+        GROUP BY d.from_node
         """,
         (local_node_id,),
       )
-      dm_row = cur.fetchone()
-      if dm_row and dm_row["newest_rx_time"] is not None:
-        newest_inbound_direct_message_rx_time = dm_row["newest_rx_time"]
+      peer_newest_inbound_rx_time = {
+        row["peer"]: row["newest_rx_time"]
+        for row in cur.fetchall()
+        if row["newest_rx_time"] is not None
+      }
 
   finally:
     conn.close()
@@ -203,12 +216,13 @@ def get_stats() -> Response:
   if serve_direct_messages:
     stats_payload["total_direct_messages"] = total_direct_messages
     stats_payload["direct_message_count"] = direct_message_count
-    # Present and null when there is no inbound DM, rather than absent: the client
+    # Present and empty when there is no inbound DM, rather than absent: the client
     # distinguishes "nothing waiting" from "this build does not report it", and only
-    # the second is a reason to leave the sidebar alone.
-    stats_payload["newest_inbound_direct_message_rx_time"] = (
-      newest_inbound_direct_message_rx_time
-    )
+    # the second is a reason to leave the sidebar alone. This key replaced the
+    # scalar `newest_inbound_direct_message_rx_time` when the DM view was threaded;
+    # a client still looking for the scalar reads its absence as "not reported" and
+    # abstains, which is the graceful half of that distinction.
+    stats_payload["peer_newest_inbound_rx_time"] = peer_newest_inbound_rx_time
 
   payload: dict[str, Any] = {
     "local_node": local_node,

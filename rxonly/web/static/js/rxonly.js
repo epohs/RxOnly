@@ -32,10 +32,21 @@
      ------------------------------------------ */
 
   var app_state = {
-    current_view: "home",  // "home", "channel", "node", "direct_messages", "message"
+    // "home", "channel", "node", "direct_messages", "conversation", "message".
+    // "direct_messages" is the index of conversations — one row per peer — and
+    // "conversation" is one thread. The flat all-DMs-at-once list that
+    // "direct_messages" used to name is gone, the same replacement mesh-console
+    // made: a thread has a peer and a read position of its own, the index has
+    // neither.
+    current_view: "home",
     current_channel_index: null,
     current_channel_name: null,
     current_channel_url: null,
+    // Which thread is on screen when current_view is "conversation" — the peer's
+    // node id. Cleared by the views that mean "no thread" and deliberately left
+    // alone by the detail views, exactly as current_channel_index is, so a
+    // breadcrumb can find its way back.
+    current_peer: null,
     current_node_url: null,
     breadcrumbs: [{ label: "Dashboard", href: "/", view: "home" }],
     is_loading_more_nodes: false,
@@ -45,6 +56,7 @@
     previous_channel_index: null,
     previous_channel_name: null,
     previous_channel_url: null,
+    previous_peer: null,
 
     // Polling state
     fast_poll_timer: null,
@@ -86,6 +98,7 @@
     saved_messages_is_mobile: false,
     saved_messages_channel_index: null,
     saved_messages_is_dm: false,
+    saved_messages_peer: null,
 
     // Hash routing state
     navigating_from_content: false,
@@ -221,6 +234,22 @@
     }
     var date = new Date(unix_timestamp * 1000);
     return date.toISOString();
+  }
+
+  /* 1755184620 becomes "8/14 11:17 AM". Mirrors format_time_short in
+     mesh-console's ui/format.py — same seconds in, same string out, so when a
+     conversation last moved reads identically in a browser and a terminal. The
+     same arrangement format_uptime has with the same file, and kept in step the
+     same way: by hand. hour12 is forced because strftime's %-I always is. */
+  function format_time_short(unix_timestamp) {
+    if (!unix_timestamp) {
+      return "";
+    }
+    var date = new Date(unix_timestamp * 1000);
+    var time = date.toLocaleTimeString(undefined, {
+      hour: "numeric", minute: "2-digit", hour12: true,
+    });
+    return (date.getMonth() + 1) + "/" + date.getDate() + " " + time;
   }
 
   /* 90061 becomes "1d 1h 1m". Mirrors format_uptime in mesh-console's
@@ -629,16 +658,19 @@
    * piece of state to keep in step by hand.
    *
    * The single-message view ("message") is not a list and has no read position; it
-   * returns null here, and every caller treats that as "nothing to do".
+   * returns null here, and every caller treats that as "nothing to do". So is the
+   * conversation index ("direct_messages"): its rows are threads, not messages,
+   * and nothing on it can be scrolled past into being read — the thread views
+   * under it each carry their own position.
    *
-   * @returns {{ is_dm: boolean, channel_index: number|null }|null}
+   * @returns {{ is_dm: boolean, channel_index: number|null, peer: string|null }|null}
    */
   function current_conversation() {
     if (app_state.current_view === "channel") {
-      return { is_dm: false, channel_index: app_state.current_channel_index };
+      return { is_dm: false, channel_index: app_state.current_channel_index, peer: null };
     }
-    if (app_state.current_view === "direct_messages") {
-      return { is_dm: true, channel_index: null };
+    if (app_state.current_view === "conversation") {
+      return { is_dm: true, channel_index: null, peer: app_state.current_peer };
     }
     return null;
   }
@@ -647,21 +679,35 @@
    * Build a localStorage key for last-read tracking.
    * @param {boolean} is_dm - true for direct messages
    * @param {number|null} channel_index - channel index (ignored for DMs)
+   * @param {string|null} peer - the conversation's peer node id (DMs only)
    * @returns {string} localStorage key
    */
-  function build_last_read_key(is_dm, channel_index) {
-    if (is_dm) return "rxonly_last_read_dm";
+  function build_last_read_key(is_dm, channel_index, peer) {
+    if (is_dm) return "rxonly_last_read_dm_" + peer;
     return "rxonly_last_read_ch_" + channel_index;
   }
 
   /**
-   * Get the last-read position for a channel/DM.
+   * Get the last-read position for a channel or conversation.
+   *
+   * A conversation with no position of its own falls back to the legacy
+   * "rxonly_last_read_dm" key, which is where the flat DM list — every
+   * conversation at once — kept its one position before the view was threaded.
+   * That is a floor, not a guess: a reader who had read the flat list up to some
+   * moment had read every conversation up to it. Without the fallback, threading
+   * would mark every old message unread again on the first visit after the
+   * change. The legacy key is never written again; per-peer positions bury it
+   * one conversation at a time.
+   *
    * @returns {{ message_id: number, rx_time: number } | null}
    */
-  function get_last_read(is_dm, channel_index) {
+  function get_last_read(is_dm, channel_index, peer) {
     try {
-      var key = build_last_read_key(is_dm, channel_index);
+      var key = build_last_read_key(is_dm, channel_index, peer);
       var raw = localStorage.getItem(key);
+      if (!raw && is_dm) {
+        raw = localStorage.getItem("rxonly_last_read_dm");
+      }
       if (!raw) return null;
       var parsed = JSON.parse(raw);
       if (parsed && typeof parsed.message_id === "number" && typeof parsed.rx_time === "number") {
@@ -679,9 +725,9 @@
    * Not called directly outside this block — go through advance_last_read, which is
    * where the "forward only" rule lives.
    */
-  function set_last_read(is_dm, channel_index, message_id, rx_time) {
+  function set_last_read(is_dm, channel_index, peer, message_id, rx_time) {
     try {
-      var key = build_last_read_key(is_dm, channel_index);
+      var key = build_last_read_key(is_dm, channel_index, peer);
       localStorage.setItem(key, JSON.stringify({ message_id: message_id, rx_time: rx_time }));
     } catch (e) {
       // Silently fail if localStorage is unavailable
@@ -714,11 +760,11 @@
    * one-second resolution, so this is routine — and it is a bounded, self-correcting
    * miss rather than a mark that cannot be cleared.
    */
-  function advance_last_read(is_dm, channel_index, message_id, rx_time) {
+  function advance_last_read(is_dm, channel_index, peer, message_id, rx_time) {
     if (!message_id || !rx_time) return false;
-    var current = get_last_read(is_dm, channel_index);
+    var current = get_last_read(is_dm, channel_index, peer);
     if (current && rx_time <= current.rx_time) return false;
-    set_last_read(is_dm, channel_index, message_id, rx_time);
+    set_last_read(is_dm, channel_index, peer, message_id, rx_time);
     return true;
   }
 
@@ -738,12 +784,16 @@
    * field — in both cases the caller falls back to the newest drawn row, which is the
    * behaviour this had before.
    */
-  function get_unread_ceiling(is_dm, channel_index) {
+  function get_unread_ceiling(is_dm, channel_index, peer) {
     var stats = app_state.last_stats && app_state.last_stats.stats;
     if (!stats) return null;
 
     if (is_dm) {
-      var dm_newest = stats.newest_inbound_direct_message_rx_time;
+      // Per peer since the DM view was threaded — the same map the sidebar's DM
+      // entry sweeps in update_channel_unread, read for one thread.
+      var by_peer = stats.peer_newest_inbound_rx_time;
+      if (!by_peer || !peer) return null;
+      var dm_newest = by_peer[peer];
       return typeof dm_newest === "number" ? dm_newest : null;
     }
 
@@ -801,7 +851,7 @@
     if (last_read_item) {
       var msg_id = parseInt(last_read_item.dataset.messageId, 10);
       var rx_time = parseInt(last_read_item.dataset.rxTime || "0", 10);
-      if (advance_last_read(conversation.is_dm, conversation.channel_index, msg_id, rx_time)) {
+      if (advance_last_read(conversation.is_dm, conversation.channel_index, conversation.peer, msg_id, rx_time)) {
         advanced = true;
       }
     }
@@ -841,12 +891,12 @@
           // Only in this branch: it is guarded by `!messages_has_more_newer` and a
           // scroll to the absolute bottom, so there is genuinely nothing left to
           // reach. The threshold scan above must keep using the row it is looking at.
-          var ceiling = get_unread_ceiling(conversation.is_dm, conversation.channel_index);
+          var ceiling = get_unread_ceiling(conversation.is_dm, conversation.channel_index, conversation.peer);
           if (ceiling !== null && ceiling > newest_rx_time) {
             newest_rx_time = ceiling;
           }
 
-          if (advance_last_read(conversation.is_dm, conversation.channel_index, newest_id, newest_rx_time)) {
+          if (advance_last_read(conversation.is_dm, conversation.channel_index, conversation.peer, newest_id, newest_rx_time)) {
             advanced = true;
           }
         }
@@ -942,6 +992,7 @@
         app_state.saved_messages_is_mobile = is_mobile;
         app_state.saved_messages_channel_index = conversation.channel_index;
         app_state.saved_messages_is_dm = conversation.is_dm;
+        app_state.saved_messages_peer = conversation.peer;
       }
     }
   }
@@ -955,21 +1006,27 @@
     app_state.saved_messages_is_mobile = false;
     app_state.saved_messages_channel_index = null;
     app_state.saved_messages_is_dm = false;
+    app_state.saved_messages_peer = null;
   }
 
   /**
-   * Check whether a saved scroll position matches the given channel/DM context.
+   * Check whether a saved scroll position matches the given channel/conversation.
    * @param {boolean} is_dm
    * @param {number|null} channel_index
+   * @param {string|null} peer
    * @returns {{ scroll_top: number, is_mobile: boolean }|null} Saved position, or null if no match
    */
-  function consume_saved_scroll_position(is_dm, channel_index) {
+  function consume_saved_scroll_position(is_dm, channel_index, peer) {
     if (app_state.saved_messages_scroll_top === null) return null;
     if (app_state.saved_messages_is_dm !== is_dm) {
       clear_saved_scroll_position();
       return null;
     }
     if (!is_dm && app_state.saved_messages_channel_index !== channel_index) {
+      clear_saved_scroll_position();
+      return null;
+    }
+    if (is_dm && app_state.saved_messages_peer !== peer) {
       clear_saved_scroll_position();
       return null;
     }
@@ -992,6 +1049,27 @@
 
   function get_stats_url() {
     return dom_elements.body.dataset.apiStatsUrl || "/api/stats";
+  }
+
+  function get_direct_messages_url() {
+    return get_nodes_list_url().replace("/nodes", "/direct-messages");
+  }
+
+  function get_dm_conversations_url() {
+    return dom_elements.body.dataset.apiDmConversationsUrl || "/api/direct-messages/conversations";
+  }
+
+  /**
+   * Fetch the direct message index: one entry per peer, newest thread first,
+   * with the local node's names riding along for the rows' left-hand side.
+   */
+  function fetch_conversations() {
+    return fetch(get_dm_conversations_url()).then(function(response) {
+      if (!response.ok) {
+        throw new Error("Failed to fetch conversations: " + response.status);
+      }
+      return response.json();
+    });
   }
 
   function fetch_nodes_page(offset, limit, search) {
@@ -1023,6 +1101,7 @@
    * @param {Object} options
    * @param {boolean} options.is_dm - Fetch direct messages instead of channel messages
    * @param {number|null} [options.channel_index] - Channel index (ignored for DMs)
+   * @param {string|null} [options.peer] - Narrow DMs to one conversation (ignored for channels)
    * @param {number|null} [options.after_rx_time] - Load messages after this timestamp
    * @param {number|null} [options.before_rx_time] - Load messages before this timestamp
    * @param {boolean} [options.newest] - Load the newest page
@@ -1031,11 +1110,14 @@
    */
   function fetch_message_page(options) {
     var is_dm = options.is_dm || false;
-    var base_url = get_nodes_list_url().replace("/nodes", is_dm ? "/direct-messages" : "/messages");
+    var base_url = is_dm ? get_direct_messages_url() : get_nodes_list_url().replace("/nodes", "/messages");
     var params = new URLSearchParams();
 
     if (!is_dm && options.channel_index != null) {
       params.set("channel_index", String(options.channel_index));
+    }
+    if (is_dm && options.peer) {
+      params.set("peer", options.peer);
     }
     if (options.after_rx_time != null) {
       params.set("after_rx_time", String(options.after_rx_time));
@@ -1155,6 +1237,7 @@
   RxOnly.update_all_node_counts = update_all_node_counts;
   RxOnly.format_timestamp = format_timestamp;
   RxOnly.format_iso_timestamp = format_iso_timestamp;
+  RxOnly.format_time_short = format_time_short;
   RxOnly.escape_html = escape_html;
   RxOnly.build_node_url = build_node_url;
   RxOnly.build_message_url = build_message_url;
@@ -1188,8 +1271,10 @@
   // API
   RxOnly.get_nodes_list_url = get_nodes_list_url;
   RxOnly.get_stats_url = get_stats_url;
+  RxOnly.get_direct_messages_url = get_direct_messages_url;
   RxOnly.fetch_nodes_page = fetch_nodes_page;
   RxOnly.fetch_stats = fetch_stats;
+  RxOnly.fetch_conversations = fetch_conversations;
   RxOnly.fetch_message_page = fetch_message_page;
   RxOnly.update_message_cursors = update_message_cursors;
   RxOnly.reset_message_state = reset_message_state;

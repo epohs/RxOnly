@@ -886,6 +886,84 @@ body:not(.no-js) .nodes-search-reveal {
 
 
 /* ============================================
+   Conversations List (Direct Messages index)
+   ============================================ */
+
+/* The direct message view's first screen: one row per correspondent, opening that
+   thread. The container and heading mirror .messages-list-container because the
+   two take turns in the same main pane and the heading must not jump between them.
+
+   A row is two lines in the sidebar's node-link idiom — who, then the quieter
+   facts about them — but drawn on --color-bg-surface like a message item, because
+   this list lives in the main pane where rows are cards, not in the sidebar where
+   rows are stripes. The title takes --color-accent-node for the reason
+   mesh-console's .conversation-peer does: both ends of the line are nodes. */
+
+.conversations-list-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.conversations-list-container h2 {
+  flex: 0 0 auto;
+  margin: 0 0 var(--space-md) 0;
+  font-size: 1.75rem;
+  font-weight: 300;
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+}
+
+.conversations-list {
+  flex: 1 1 auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space-md) - (var(--space-sm) / 2));
+  overflow-y: auto;
+}
+
+.conversation-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-bg-surface);
+  text-decoration: none;
+}
+
+.conversation-link:hover > .conversation-title {
+  text-decoration: underline;
+}
+
+.conversation-title {
+  font-weight: 500;
+  color: var(--color-accent-node);
+}
+
+.conversation-summary {
+  font-size: 0.875em;
+  color: var(--color-text-muted);
+}
+
+/* A thread with something waiting in it: the summary goes bold, and nothing else
+   changes. The same state-modifier shape as `.channel-link.unread > .channel-count`
+   above, for the reasons documented there — the weight goes on the line the cue is
+   about (the one whose numbers just moved), the title is left alone so the row
+   still reads as the same correspondent, and the word is the one mesh-console uses
+   for the identical fact. Applied at render and by update_conversations_list in
+   messages.js, from the same per-peer comparison the sidebar's DM entry makes. */
+
+.conversation-link.unread > .conversation-summary {
+  font-weight: 800;
+}
+
+
+
+/* ============================================
    Reply Bar
    ============================================ */
 
@@ -1086,7 +1164,8 @@ a.message-reply-bar:hover {
     overflow-y: visible;
   }
 
-  .messages-list {
+  .messages-list,
+  .conversations-list {
     overflow-y: visible;
   }
 

@@ -1,0 +1,21 @@
+<template id="template-conversations-list">
+  <section class="conversations-list-container">
+    <h2 data-field="heading"></h2>
+    <ul class="conversations-list" id="conversations-list">
+    </ul>
+  </section>
+</template>
+
+{# One row of the direct message index: a thread with one peer. The title is the
+   trail a message takes, `RX1 › ECHO`, and the summary is the quieter facts —
+   when the thread last moved and how big it is. Both are filled by
+   create_conversation_item() in messages.js rather than a field map, because
+   every part of both lines is computed from more than one field. #}
+<template id="template-conversation-item">
+  <li>
+    <a href="#" class="conversation-link" data-peer="">
+      <span class="conversation-title"></span>
+      <span class="conversation-summary"></span>
+    </a>
+  </li>
+</template>

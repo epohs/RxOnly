@@ -28,6 +28,7 @@
     app_state.current_channel_index = null;
     app_state.current_channel_name = null;
     app_state.current_channel_url = null;
+    app_state.current_peer = null;
     app_state.current_node_url = null;
     dom_elements.app_layout.classList.remove("viewing-detail");
     R.clear_sidebar_active();
@@ -93,6 +94,7 @@
     app_state.previous_channel_index = app_state.current_channel_index;
     app_state.previous_channel_name = app_state.current_channel_name;
     app_state.previous_channel_url = app_state.current_channel_url;
+    app_state.previous_peer = app_state.current_peer;
 
     app_state.current_view = "node";
     app_state.current_node_url = node_api_url;
@@ -127,6 +129,23 @@
           label: app_state.previous_channel_name,
           href: app_state.previous_channel_url,
           view: "channel",
+        });
+      } else if (from_content && app_state.previous_view === "conversation" && app_state.previous_channel_name) {
+        // Reached from inside a thread: the trail walks back through the index
+        // of correspondents and then the thread, the same two steps
+        // show_message_detail lays down.
+        var index_link = dom_elements.channels_list
+          ? dom_elements.channels_list.querySelector('.channel-link[data-channel-index="dm"]')
+          : null;
+        crumbs.push({
+          label: "Direct Messages",
+          href: index_link ? index_link.getAttribute("href") : "#",
+          view: "direct_messages",
+        });
+        crumbs.push({
+          label: app_state.previous_channel_name,
+          href: app_state.previous_channel_url,
+          view: "conversation",
         });
       } else if (from_content && app_state.previous_view === "direct_messages") {
         crumbs.push({
@@ -322,26 +341,40 @@
 
     var stats = stats_data.stats;
 
-    // Present-and-null is a server that serves these and has nothing inbound; absent
-    // is a server that does not report them. Only the second is a reason to abstain.
+    // Present-and-empty is a server that serves these and has nothing inbound;
+    // absent is a server that does not report them. Only the second is a reason
+    // to abstain. The DM figure is `peer_newest_inbound_rx_time` — a map per
+    // peer, since the DM view was threaded and each thread reads on its own
+    // clock; a server still reporting the old scalar reads as not reporting.
     var reports_channels = stats.channel_newest_inbound_rx_time != null;
-    var reports_dms = stats.newest_inbound_direct_message_rx_time !== undefined;
+    var reports_dms = stats.peer_newest_inbound_rx_time != null;
     if (!reports_channels && !reports_dms) return;
 
     dom_elements.channels_list.querySelectorAll(".channel-link").forEach(function(link) {
       var channel_index = link.dataset.channelIndex;
       var is_dm = channel_index === "dm";
-      var newest_rx_time;
 
       if (is_dm) {
         if (!reports_dms) return;
-        newest_rx_time = stats.newest_inbound_direct_message_rx_time;
-      } else {
-        if (!reports_channels) return;
-        newest_rx_time = stats.channel_newest_inbound_rx_time[parseInt(channel_index, 10)];
+        // The sidebar entry opens the index of every conversation, so it is
+        // bold when *any* of them has something waiting — reading one thread
+        // to the end must not clear a mark another thread raised.
+        var by_peer = stats.peer_newest_inbound_rx_time;
+        var any_unread = false;
+        var peers = Object.keys(by_peer);
+        for (var i = 0; i < peers.length; i++) {
+          if (has_unread(by_peer[peers[i]], R.get_last_read(true, null, peers[i]))) {
+            any_unread = true;
+            break;
+          }
+        }
+        link.classList.toggle("unread", any_unread);
+        return;
       }
 
-      var last_read = R.get_last_read(is_dm, is_dm ? null : parseInt(channel_index, 10));
+      if (!reports_channels) return;
+      var newest_rx_time = stats.channel_newest_inbound_rx_time[parseInt(channel_index, 10)];
+      var last_read = R.get_last_read(is_dm, parseInt(channel_index, 10), null);
       link.classList.toggle("unread", has_unread(newest_rx_time, last_read));
     });
   }
@@ -417,7 +450,9 @@
       }
     }
 
-    // Update messages if viewing a channel
+    // Update messages if viewing a channel or a conversation, and the
+    // conversation index if that is what is open — its rows move with every
+    // message that arrives, the way mesh-console redraws its index on each poll.
     if (!app_state.messages_scroll_paused) {
       if (app_state.current_view === "channel" && app_state.current_channel_index !== null) {
         try {
@@ -425,11 +460,17 @@
         } catch (error) {
           console.error("Slow poll (messages) failed:", error);
         }
-      } else if (app_state.current_view === "direct_messages") {
+      } else if (app_state.current_view === "conversation" && app_state.current_peer !== null) {
         try {
           await update_messages_list(true);
         } catch (error) {
           console.error("Slow poll (DMs) failed:", error);
+        }
+      } else if (app_state.current_view === "direct_messages") {
+        try {
+          await R.update_conversations_list();
+        } catch (error) {
+          console.error("Slow poll (conversations) failed:", error);
         }
       }
     }
@@ -483,6 +524,7 @@
       var data = await R.fetch_message_page({
         is_dm: is_direct_messages,
         channel_index: is_direct_messages ? null : app_state.current_channel_index,
+        peer: is_direct_messages ? app_state.current_peer : null,
         after_rx_time: app_state.messages_newest_rx_time,
       });
 
@@ -607,9 +649,14 @@
    *   ""  or "#"           → Dashboard
    *   "#node/!3265cf81"    → Node detail
    *   "#channel/1"         → Channel messages
-   *   "#dm"                → Direct messages list
+   *   "#dm"                → Direct messages index (one row per conversation)
+   *   "#dm/!3265cf81"      → One conversation's thread
    *   "#message/2217203483"→ Channel message detail
    *   "#dm/2217203483"     → DM detail
+   *
+   * The "dm" parameter is unambiguous by construction: a node id always carries
+   * its "!" prefix — it is stored that way in the archive — and a packet id is
+   * always a bare number.
    */
   async function route_from_hash(hash) {
     // Strip leading "#"
@@ -668,6 +715,18 @@
     }
 
     if (route === "dm" && param) {
+      if (param.charAt(0) === "!") {
+        // One conversation's thread. Gated on the sidebar entry like the index
+        // is: no entry means direct messages are not being served here.
+        var dm_entry = dom_elements.channels_list
+          ? dom_elements.channels_list.querySelector('.channel-link[data-channel-index="dm"]')
+          : null;
+        if (!dm_entry) return false;
+
+        R.show_conversation(param);
+        return true;
+      }
+
       // DM detail
       R.show_message_detail(param, true);
       return true;
@@ -769,6 +828,13 @@
       }
     } else if (view === "direct_messages") {
       location.hash = "dm";
+    } else if (view === "conversation") {
+      var peer = app_state.current_peer != null
+        ? app_state.current_peer
+        : app_state.previous_peer;
+      if (peer != null) {
+        location.hash = "dm/" + peer;
+      }
     }
   }
 
@@ -777,12 +843,20 @@
    * Handles: node links in messages, message timestamp links.
    */
   function handle_main_content_click(event) {
+    // Conversation index row — open that peer's thread
+    var conversation_link = event.target.closest(".conversation-link[data-peer]");
+    if (conversation_link) {
+      event.preventDefault();
+      location.hash = "dm/" + conversation_link.dataset.peer;
+      return;
+    }
+
     // Reply bar click — navigate to parent message detail
     var reply_bar = event.target.closest(".message-reply-bar[data-reply-to-id]");
     if (reply_bar) {
       event.preventDefault();
       var reply_to_id = reply_bar.dataset.replyToId;
-      var is_dm_reply = app_state.current_view === "direct_messages";
+      var is_dm_reply = app_state.current_view === "conversation";
       location.hash = (is_dm_reply ? "dm/" : "message/") + reply_to_id;
       return;
     }
@@ -792,7 +866,7 @@
     if (reply_to_link) {
       event.preventDefault();
       var parent_id = reply_to_link.dataset.replyToId;
-      var is_dm_context = app_state.current_view === "message" && app_state.previous_view === "direct_messages";
+      var is_dm_context = app_state.current_view === "message" && app_state.previous_view === "conversation";
       location.hash = (is_dm_context ? "dm/" : "message/") + parent_id;
       return;
     }
@@ -802,7 +876,7 @@
     if (tapback_pill) {
       event.preventDefault();
       var tapback_id = tapback_pill.dataset.tapbackId;
-      var is_dm = app_state.current_view === "direct_messages";
+      var is_dm = app_state.current_view === "conversation";
       location.hash = (is_dm ? "dm/" : "message/") + tapback_id;
       return;
     }
@@ -814,7 +888,7 @@
       var li = time_link.closest("li[data-message-id]");
       if (li) {
         var message_id = li.dataset.messageId;
-        var is_dm_msg = app_state.current_view === "direct_messages";
+        var is_dm_msg = app_state.current_view === "conversation";
         location.hash = (is_dm_msg ? "dm/" : "message/") + message_id;
       }
       return;
@@ -967,11 +1041,15 @@
      Namespace Exports
      ------------------------------------------ */
 
-  // The only thing this file exposes, and it is exposed for one caller:
-  // save_read_position_before_leave in rxonly.js, which knows the read position has
-  // moved but nothing about stats. Everything else here is reached through the DOM
-  // events and timers set up below.
+  // Exposed for callers in the earlier-loaded files, which is safe for the reason
+  // noted on refresh_channel_unread's callers: every file is loaded before any
+  // user interaction. refresh_channel_unread is for save_read_position_before_leave
+  // in rxonly.js, which knows the read position has moved but nothing about stats;
+  // has_unread is for the conversation index rows in messages.js, so the one
+  // comparison rule stays written once. Everything else here is reached through
+  // the DOM events and timers set up below.
   R.refresh_channel_unread = refresh_channel_unread;
+  R.has_unread = has_unread;
 
 
   // Run on DOM ready
