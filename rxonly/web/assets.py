@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from pathlib import Path
 from typing import Optional
@@ -24,6 +25,26 @@ MANIFEST_PATH = STATIC_DIR / "asset-manifest.json"
 
 CSS_KEY = "css"
 JS_KEY = "js"
+
+# What a built filename looks like, and the reason one can be cached forever.
+#
+# `build_assets.py` names its output `rxonly-<hash>.min.css` / `.js`, where the hash
+# is the first eight uppercase hex characters of the minified content's SHA-256. So
+# the name *is* the content: change a byte of CSS and the URL changes with it, and a
+# browser holding the old one is holding something that is still correct for the page
+# that asked for it. That is what makes a year-long `immutable` honest here and a lie
+# for `rxonly.css`, whose name says nothing about what is inside it.
+#
+# Kept in this module rather than beside the cache header that uses it, because the
+# shape being matched is the one `build_assets.py` writes — this file is already the
+# contract between the two, and a pattern that drifts from `content_hash()` would
+# silently stop recognising a build product rather than fail.
+HASHED_ASSET = re.compile(r"/rxonly-[0-9A-F]{8}\.min\.(?:css|js)$")
+
+
+def is_hashed_asset(path: str) -> bool:
+  """Whether `path` names a build product whose filename encodes its own content."""
+  return HASHED_ASSET.search(path) is not None
 
 
 _cache: Optional[dict[str, str]] = None

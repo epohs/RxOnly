@@ -3,10 +3,10 @@ import sqlite3
 from datetime import datetime
 from typing import Any, Optional
 
-from flask import Blueprint, render_template
+from flask import Blueprint, Response, render_template, send_from_directory
 
 from rxonly.config import Config
-from rxonly.web.assets import CSS_KEY, JS_KEY, read_manifest
+from rxonly.web.assets import CSS_KEY, JS_KEY, STATIC_DIR, read_manifest
 from rxonly.web.db import (
   channel_message_counts,
   direct_message_counts,
@@ -17,6 +17,32 @@ from rxonly.web.db import (
 
 
 dashboard_bp = Blueprint("dashboard", __name__)
+
+
+@dashboard_bp.route("/favicon.ico")
+def favicon() -> Response:
+  """The icon a browser asks for without being told to.
+
+  Every favicon the page *links* is under `/static/img/`, so this is only ever hit
+  by the implicit request browsers make for `/favicon.ico` at the root — which this
+  app answered with a 404 and left to the reverse proxy, where
+  `deploy/nginx.conf.example` has an `alias` for it.
+
+  **That made a proxy load-bearing for a response's correctness, which is the thing
+  the security headers were just moved here to stop.** nginx serving the file itself
+  means `set_security_headers` never runs for it, so on the live site the favicon
+  came back with no `X-Content-Type-Options` while every other asset had one — an
+  `.ico` is a small thing to sniff, but "every response carries these headers" is
+  either true or it is not.
+
+  With this here the app is right on its own, and the proxy's alias is an
+  optimisation rather than a requirement. If both exist the proxy still wins, since
+  it matches before anything is passed upstream; that is fine, and removing the
+  alias is now a free choice rather than a regression.
+  """
+  return send_from_directory(
+    STATIC_DIR / "img", "favicon.ico", mimetype="image/vnd.microsoft.icon"
+  )
 
 
 @dashboard_bp.app_template_filter("format_timestamp")
