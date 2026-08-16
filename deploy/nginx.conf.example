@@ -1,3 +1,22 @@
+# Reverse proxy for RxOnly.
+#
+# The shape of this file follows one rule: **nginx does what only nginx can do.**
+# It terminates TLS, it restores the real client IP from behind Cloudflare, and it
+# hands everything else to the application. Anything the app can state about its own
+# responses, the app states — see the security-header note below, which is the
+# clearest case and the one that used to be split across both layers.
+
+# Named upstream rather than a bare `proxy_pass http://127.0.0.1:8000`, purely so
+# `keepalive` has somewhere to live. Without it nginx opens a fresh TCP connection to
+# gunicorn for every request; with it a small pool is reused. On loopback that is a
+# small win, but it is free, and the `proxy_set_header Connection ""` below — which
+# is what actually enables it — replaces a line that was wrong for a different
+# reason. See there.
+upstream rxonly {
+    server 127.0.0.1:8000;
+    keepalive 8;
+}
+
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
@@ -12,6 +31,13 @@ server {
 
     access_log /var/log/nginx/rxonly.access.log;
     error_log /var/log/nginx/rxonly.error.log;
+
+    # Real client IP from behind Cloudflare's proxy, at server level rather than
+    # inside `location /` where it used to sit. A `set_real_ip_from` block only
+    # applies where it is declared, so down there the port-80 redirect and any other
+    # location logged a Cloudflare address instead of a visitor's. Uncomment if you
+    # proxy through Cloudflare and run cloudflare-sync-ips.sh from this folder.
+    #include cloudflare;
 
 
     # ---- Security Headers ----
@@ -36,30 +62,37 @@ server {
     # Increase to 2592000 (30 days) for better modern conformity
     add_header Strict-Transport-Security "max-age=86400" always;
 
-    location = /favicon.ico {
-        alias /path/to/RxOnly/rxonly/web/static/img/favicon.ico;
-        access_log off;
-        log_not_found off;
-    }
+    # **There is no `location = /favicon.ico` here any more, and its absence is the
+    # point.** Browsers ask for `/favicon.ico` at the document root whatever the page
+    # links, so this file used to carry an `alias` for it to stop the 404s. The app
+    # answers that route itself now, out of the same file in `static/img/`, which
+    # means the icon comes back with the security headers and the cache lifetime
+    # every other asset gets. Serving it here again would take both away, because a
+    # request nginx satisfies never reaches `set_security_headers`.
 
     location / {
-    
+
         # Uncomment the two lines below if you plan
         # to enable Basic user/pass Authentication.
         # NOTE: Enabling this is a good idea.
         #auth_basic "Restricted Area";
-        #auth_basic_user_file /etc/nginx/auth/rxonly.htpasswd;    
-    
-        # Uncomment the line below if you use Cloudflare
-        # for your DNS provider, and you are also using
-        # the cloudflare-sync-ips.sh from the /deploy/ folder.
-        #include cloudflare;
+        #auth_basic_user_file /etc/nginx/auth/rxonly.htpasswd;
+
         include proxy_params;
 
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://rxonly;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+
+        # Empty, not "upgrade".
+        #
+        # This pair used to read `proxy_set_header Upgrade $http_upgrade;` and
+        # `Connection "upgrade"`, which is the WebSocket handshake boilerplate every
+        # nginx tutorial carries — and RxOnly has no WebSockets. It polls over
+        # ordinary GETs. So the app was being told every request was an upgrade
+        # attempt, harmlessly but wrongly, and the `Connection` header it set is
+        # exactly what stops nginx reusing an upstream connection. Clearing it is
+        # what makes `keepalive` in the upstream block above do anything.
+        proxy_set_header Connection "";
     }
 }
 
@@ -68,3 +101,22 @@ server {
     server_name rxonly.your-domain.com;
     return 301 https://$host$request_uri;
 }
+
+# A catch-all for HTTPS requests that name a host this server does not serve.
+#
+# Without one, such a request lands on whichever `:443` block nginx loaded first —
+# which is filename order, not a decision. 444 closes the connection without a
+# response, which is the conventional answer to a request that had no business
+# arriving. Give it a certificate because TLS is negotiated before the Host is
+# known; any certificate will do, since the handshake is not meant to succeed.
+#
+# Omit this block if another vhost on the machine is deliberately the default.
+#server {
+#    listen 443 ssl default_server;
+#    listen [::]:443 ssl default_server;
+#    http2 on;
+#    server_name _;
+#    ssl_certificate /etc/letsencrypt/live/rxonly.your-domain.com/fullchain.pem;
+#    ssl_certificate_key /etc/letsencrypt/live/rxonly.your-domain.com/privkey.pem;
+#    return 444;
+#}

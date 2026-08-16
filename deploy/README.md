@@ -23,6 +23,15 @@ To configure it:
 The script caches Cloudflare zone and record IDs, only updates DNS when the
 IP changes, and logs all activity for audit and debugging.
 
+It updates records with `PATCH` rather than `PUT`, and if you adapt it, keep it
+that way. `PUT` replaces a record outright — every field the body omits reverts to
+its default, and `proxied` defaults to false — so a `PUT` carrying only type, name
+and content silently turns Cloudflare's proxy off on its next run. Turn the orange
+cloud on, watch it work, and lose it a few hours later with nothing in the log to
+say why. `PATCH` changes only what it is given, which also lets one invocation
+serve records whose proxy settings differ: a web host wants the proxy on, and an
+SSH host must have it off, since the proxy only carries HTTP and HTTPS.
+
 
 
 

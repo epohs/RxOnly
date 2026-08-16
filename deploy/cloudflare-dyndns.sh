@@ -126,8 +126,23 @@ line=2
 for record_name in "${record_names[@]}"; do
     record_identifier="$(sed -n "${line}p" "$id_file")"
 
+    # PATCH, not PUT, and the difference is not stylistic.
+    #
+    # PUT replaces the record: every field absent from the body reverts to its
+    # default, and `proxied` defaults to false. So a PUT that sends only type, name
+    # and content silently turns Cloudflare's proxy *off* for that record — which
+    # for a host behind the orange cloud means this script quietly un-proxies the
+    # site on its next run, hours after somebody turned proxying on and watched it
+    # work.
+    #
+    # PATCH updates only what it is given, so whatever each record's `proxied` flag
+    # is set to in the dashboard survives. That matters here specifically because
+    # `record_names` can hold more than one host with different answers: a web host
+    # wants the proxy on, and an SSH or direct-access host must have it off, since
+    # Cloudflare's proxy only carries HTTP and HTTPS. Hardcoding "proxied":true
+    # would fix the first and break the second.
     update="$(
-        curl -fsS -X PUT "https://api.cloudflare.com/client/v4/zones/$zone_identifier/dns_records/$record_identifier" \
+        curl -fsS -X PATCH "https://api.cloudflare.com/client/v4/zones/$zone_identifier/dns_records/$record_identifier" \
             -H "Authorization: Bearer $auth_key" \
             -H "Content-Type: application/json" \
             --data "{\"type\":\"A\",\"name\":\"$record_name\",\"content\":\"$ip\"}"
