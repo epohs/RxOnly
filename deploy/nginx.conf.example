@@ -39,6 +39,38 @@ server {
     # proxy through Cloudflare and run cloudflare-sync-ips.sh from this folder.
     #include cloudflare;
 
+    # ---- Origin lockdown ----
+    #
+    # Turning on Cloudflare's proxy hides the origin's address from DNS. It does not
+    # stop anyone who already has it: the address was public before the change and
+    # stays in passive-DNS history forever, so a direct request to it bypasses the
+    # proxy completely — no caching, no WAF, no rate limiting, and the real client
+    # address in place of a Cloudflare one. Proxying without this is a performance
+    # change wearing a security change's clothes.
+    #
+    # `cloudflare-allow` is generated beside `cloudflare` by the same script and
+    # holds one `allow` per published range. The exceptions below it are the ones
+    # that make the machine still usable, and each is here for a reason:
+    #
+    #   127.0.0.1 / ::1   local health checks, and anything on the box that talks to
+    #                     itself through nginx rather than through the app's port
+    #   the LAN           reaching the site from the network the host is on, which
+    #                     otherwise has to leave the building and come back
+    #
+    # `deny all` lives here rather than in the generated file deliberately. That file
+    # is rewritten by cron; a closing deny inside it would mean a truncated download
+    # and a lockout are the same event.
+    #
+    # **Leave the port-80 block below open.** It serves no content — it only
+    # redirects — and it is the path an ACME HTTP-01 challenge arrives on if the
+    # proxy is ever off when a certificate comes up for renewal.
+    #
+    #include cloudflare-allow;
+    #allow 127.0.0.1;
+    #allow ::1;
+    #allow 192.168.1.0/24;   # your LAN
+    #deny all;
+
 
     # ---- Security Headers ----
     #

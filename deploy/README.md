@@ -67,6 +67,29 @@ manual intervention.
 
 Run this script periodically via cron and uncomment the `#include cloudflare;` line in my nginx.conf example file.
 
+### Locking the origin to Cloudflare
+
+The script writes a second file, `/etc/nginx/cloudflare-allow`, carrying the same
+ranges as `allow` rules instead of `set_real_ip_from`. Include it, add your local
+exceptions, and close with `deny all` — see the origin-lockdown block in
+`nginx.conf.example`.
+
+This is the half that makes proxying a security change rather than only a
+performance one. The orange cloud hides your origin's address from DNS; it does
+nothing about anyone who already has it, and it was public until the moment you
+flipped it. A direct request to the address skips the proxy entirely.
+
+Two things to keep in mind:
+
+- **The `deny all` belongs in your server block, not in the generated file.** That
+  file is rewritten from cron, and a closing deny inside it would make a truncated
+  download and a lockout the same event.
+- **Leave the port-80 redirect block open.** It serves no content, and it is the
+  path an ACME HTTP-01 challenge takes if the proxy happens to be off when a
+  certificate comes up for renewal. Run `certbot renew --dry-run` after applying the
+  lockdown — it performs a real challenge against the staging server, which is the
+  only way to find out that renewal still works before the day it has to.
+
 
 
 
