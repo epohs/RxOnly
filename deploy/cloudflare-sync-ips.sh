@@ -133,8 +133,14 @@ install -m 0644 "$guard_tmp" "$GUARD_FILE_PATH"
 # Test, and put the old files back if the new ones do not survive it. Reloading
 # is the easy half; the half worth writing down is that a bad guard list is an
 # outage, so it never gets as far as a running nginx.
-if ! nginx -t; then
+#
+# The output is captured rather than left to inherit stderr, because `nginx -t`
+# writes its *success* lines there too — so a cron entry that keeps stderr in
+# order to notice failures would otherwise collect two lines of "syntax is ok"
+# every night, and a log that is always non-empty is a log nobody reads.
+if ! nginx_test="$(nginx -t 2>&1)"; then
     echo "nginx rejected the generated files; restoring the previous ones" >&2
+    echo "$nginx_test" >&2
     [[ -s "$previous_real_ip" ]] && install -m 0644 "$previous_real_ip" "$CLOUDFLARE_FILE_PATH"
     [[ -s "$previous_guard" ]] && install -m 0644 "$previous_guard" "$GUARD_FILE_PATH"
     exit 1
