@@ -37,13 +37,19 @@ from rxonly.web.routes import api_bp, dashboard_bp
 # **The one thing that does carry inline styles is `img/favicon.svg`**, whose every
 # path element has a `style=` attribute. It is not an exception to the above: it is
 # fetched as an image through `<link rel="icon">`, not parsed into this document,
-# so its styles are never inline styles *of this page*. Browsers render an SVG
-# loaded as an image in a restricted mode with no scripting and no browsing
-# context, and do not apply the embedding document's style-src to its contents.
-# Verified rather than assumed — the live favicon still draws, and the console
-# reports no violation. Worth knowing before someone inlines that SVG into a
-# template one day, because that is the change that would need this concession
-# back, and it would be a `<style>`-free `<svg>` element that needed it.
+# so its styles are never inline styles *of this page* whatever the policy says.
+#
+# Checked on the deployed site rather than reasoned about, because that file is the
+# one thing here that could have made this change visible. The `after_request` hook
+# puts the policy on every response including that one, so the SVG is served under
+# `style-src 'self'` — and fetched that way it still renders with its fills intact,
+# as a top-level document, which is a stricter question than the icon it is
+# actually used as. The page itself renders fully styled and the console reports no
+# violation of any directive. (Safari resolves the icon to the sized PNGs beside it
+# and never asks for the SVG at all, so on this browser the question is moot twice
+# over.) Worth knowing before someone inlines that SVG into a template one day:
+# that is the change that would put those attributes in this document, and it is
+# the one that would need the concession back.
 #
 # One line, no newlines in the value: a literal newline in a header value is
 # rejected over HTTP/2.
