@@ -93,10 +93,13 @@ def drawn_rows(table: str, alias: str) -> str:
   `NOT (TRUE AND NULL AND TRUE)` is NULL, and a NULL in a WHERE or an ON is not true.
   Spelled `= 1` this condition dropped every pre-0.10.0 reply whose parent is still
   archived — not only the legacy reactions the paragraph above is about, but ordinary
-  legacy replies, which are rows the list plainly draws. Against the live archive
-  that was 23 of them, missing from every channel count and from the newest-drawn
-  rx_time the unread cue compares against. `IS` is SQLite's null-safe comparison, and
-  it gives NULL the answer the fallback above assumes it already had.
+  legacy replies, which are rows the list plainly draws. Measured against the live
+  archive when it was fixed: 211 rows held, 125 counted by `= 1` and 144 by `IS 1`,
+  so 19 drawn rows were missing from every channel count and from the newest-drawn
+  rx_time the unread cue compares against. (The archive holds 23 legacy replies; the
+  other four have no parent left and were counted either way, being orphans.) `IS` is
+  SQLite's null-safe comparison, and it gives NULL the answer the fallback above
+  assumes it already had.
 
   The orphan half of the client's rule is expressible exactly: `reply_to_text` comes
   from a LEFT JOIN against the whole table, so "no parent in the archive" is this
