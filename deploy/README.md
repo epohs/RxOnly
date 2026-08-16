@@ -69,10 +69,19 @@ Run this script periodically via cron and uncomment the `#include cloudflare;` l
 
 ### Locking the origin to Cloudflare
 
-The script writes a second file, `/etc/nginx/cloudflare-allow`, carrying the same
-ranges as `allow` rules instead of `set_real_ip_from`. Include it, add your local
-exceptions, and close with `deny all` — see the origin-lockdown block in
-`nginx.conf.example`.
+The script writes a second file, `/etc/nginx/cloudflare-geo`, carrying the same
+ranges in `geo` map form. Copy
+[cloudflare-origin-guard.conf.example](./cloudflare-origin-guard.conf.example) to
+`/etc/nginx/conf.d/cloudflare-origin-guard.conf`, adjust the LAN line, and
+uncomment the `if ($from_cloudflare = 0)` line in your server block.
+
+**It is not `allow`/`deny`, and it cannot be.** Those test `$remote_addr`, which
+the realip module has already rewritten from `CF-Connecting-IP` by the time they
+run. `allow <cloudflare ranges>; deny all;` therefore compares each visitor's own
+address against Cloudflare's ranges, fails for every one of them, and answers 403
+to the entire internet — after passing `nginx -t`. `geo` can key on
+`$realip_remote_addr`, which is the peer address before that rewriting, and that
+is the address the question is actually about.
 
 This is the half that makes proxying a security change rather than only a
 performance one. The orange cloud hides your origin's address from DNS; it does

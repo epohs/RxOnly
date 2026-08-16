@@ -1,0 +1,54 @@
+# Which connections may reach this origin at all — /etc/nginx/conf.d/
+#
+# Goes in conf.d rather than a server block because `geo` is an http-context
+# directive: it builds a lookup table once at load and every server block can then
+# read the variable it sets.
+#
+# ---------------------------------------------------------------------------
+# Why this is keyed on $realip_remote_addr
+# ---------------------------------------------------------------------------
+#
+# `$remote_addr` is the obvious choice and it is the wrong one. When the realip
+# module is in use — which is the whole reason a Cloudflare origin has any of this
+# — `$remote_addr` has already been rewritten from the `CF-Connecting-IP` header
+# before any access check runs. It holds the visitor's address, not the address
+# that connected. Testing it against Cloudflare's ranges therefore asks "is this
+# visitor themselves a Cloudflare server", which is false for every real person.
+#
+# The failure mode is worth stating plainly because it passes every syntax check:
+# `nginx -t` succeeds, the config reloads, and the origin answers 403 to the whole
+# internet.
+#
+# `$realip_remote_addr` is what the peer address was before that rewriting, which
+# is the question actually being asked.
+#
+# ---------------------------------------------------------------------------
+# What is in here, and what is generated
+# ---------------------------------------------------------------------------
+#
+# The Cloudflare ranges come from cloudflare-sync-ips.sh, which rewrites
+# /etc/nginx/cloudflare-geo from cron. That file holds ranges and nothing else —
+# no default, no exceptions — so that a truncated download or a deleted file is
+# never the same event as locking everybody out.
+#
+# Everything else is hand-maintained and lives here, next to the comment saying
+# why it is trusted.
+
+geo $realip_remote_addr $from_cloudflare {
+    # Anything not listed below. Nothing is refused by this file on its own — a
+    # server block has to act on the flag. See nginx.conf.example.
+    default 0;
+
+    # Cloudflare's published ranges, regenerated nightly.
+    include /etc/nginx/cloudflare-geo;
+
+    # The host talking to itself: health checks, and anything on the box that goes
+    # through nginx rather than straight to the application's port.
+    127.0.0.1 1;
+    ::1 1;
+
+    # The network this machine is on, so the site is reachable from it without the
+    # request having to leave the building and come back through Cloudflare.
+    # Change this to your own LAN, or delete it if you do not want that.
+    192.168.1.0/24 1;
+}

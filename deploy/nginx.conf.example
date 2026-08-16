@@ -48,28 +48,23 @@ server {
     # address in place of a Cloudflare one. Proxying without this is a performance
     # change wearing a security change's clothes.
     #
-    # `cloudflare-allow` is generated beside `cloudflare` by the same script and
-    # holds one `allow` per published range. The exceptions below it are the ones
-    # that make the machine still usable, and each is here for a reason:
+    # The flag is set by the geo block in conf.d/cloudflare-origin-guard.conf, which
+    # is where the local exceptions live too. Uncomment to refuse anything that did
+    # not arrive through Cloudflare:
     #
-    #   127.0.0.1 / ::1   local health checks, and anything on the box that talks to
-    #                     itself through nginx rather than through the app's port
-    #   the LAN           reaching the site from the network the host is on, which
-    #                     otherwise has to leave the building and come back
+    #if ($from_cloudflare = 0) { return 403; }
     #
-    # `deny all` lives here rather than in the generated file deliberately. That file
-    # is rewritten by cron; a closing deny inside it would mean a truncated download
-    # and a lockout are the same event.
+    # **This is not `allow`/`deny`, and it cannot be.** Those test `$remote_addr`,
+    # which the realip module has already rewritten from `CF-Connecting-IP` by the
+    # time they run — an earlier request phase. So `allow <cloudflare ranges>; deny
+    # all;` compares each visitor's *own* address against Cloudflare's ranges, fails
+    # for all of them, and answers 403 to the entire internet while passing
+    # `nginx -t`. Measured here rather than assumed: through the edge,
+    # `$remote_addr` was the visitor and `$realip_remote_addr` was 172.71.31.157.
     #
     # **Leave the port-80 block below open.** It serves no content — it only
     # redirects — and it is the path an ACME HTTP-01 challenge arrives on if the
     # proxy is ever off when a certificate comes up for renewal.
-    #
-    #include cloudflare-allow;
-    #allow 127.0.0.1;
-    #allow ::1;
-    #allow 192.168.1.0/24;   # your LAN
-    #deny all;
 
 
     # ---- Security Headers ----
