@@ -2,13 +2,13 @@ import json
 
 from typing import Any
 
-from flask import Blueprint, Response, current_app
+from flask import Blueprint, Response, current_app, request
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
 def json_response(payload: Any, status: int = 200) -> Response:
-  """One JSON body, compact in production and indented under DEBUG.
+  """One JSON body, compact for machines and indented for anybody actually reading it.
 
   Every route here used to build its own `Response(json.dumps(payload, indent=2))`,
   and the indentation was costing real work on the Pi for nobody's benefit.
@@ -30,8 +30,22 @@ def json_response(payload: Any, status: int = 200) -> Response:
   leaves a space after every comma and colon — with indent set that is the right
   choice and is what makes an indented body readable, and without it those spaces
   are several hundred more bytes of nothing.
+
+  **A browser's address bar also gets the indented body**, told apart from the
+  dashboard's polling by the Accept header — the one honest signal of who is asking.
+  A navigation sends `text/html` at full quality with JSON reachable only through a
+  discounted `*/*`; `fetch` and curl send `*/*` alone, where the two mimetypes rate
+  equally and the strict `>` keeps them compact. So the CPU saving above still holds
+  for every request the Pi serves ten times a minute, and a person pasting
+  `/api/nodes/!hex` into a browser gets something they can read. Whitespace is the
+  whole of what can be offered there: colouring keys and values means serving an
+  HTML page that renders the JSON, which stops being an API response — Firefox
+  builds that viewer itself out of any `application/json` body, and this indented
+  one included.
   """
-  if current_app.debug:
+  wants_html = request.accept_mimetypes["text/html"] > request.accept_mimetypes["application/json"]
+
+  if current_app.debug or wants_html:
     body = json.dumps(payload, indent=2)
   else:
     body = json.dumps(payload, separators=(",", ":"))
