@@ -19,7 +19,9 @@ from rxonly.web.routes import api_bp, dashboard_bp
 #
 # Every directive here is one this app already satisfies: it serves its own CSS
 # and JS from its own static directory, loads no fonts, no CDN and no remote
-# images, and makes no cross-origin requests.
+# images, and makes no cross-origin requests. The single exception is opt-in, off
+# by default, and named in one place — see `content_security_policy` below and
+# ALLOW_CLOUDFLARE_BEACON in rxonly/config.py.
 #
 # **`style-src` is `'self'` alone.** It carried `'unsafe-inline'` as inherited from
 # the proxy config this policy was moved out of, kept through that move so that
@@ -51,17 +53,43 @@ from rxonly.web.routes import api_bp, dashboard_bp
 # that is the change that would put those attributes in this document, and it is
 # the one that would need the concession back.
 #
-# One line, no newlines in the value: a literal newline in a header value is
-# rejected over HTTP/2.
-CONTENT_SECURITY_POLICY = (
-  "default-src 'self'; "
-  "img-src 'self'; "
-  "script-src 'self'; "
-  "style-src 'self'; "
-  "object-src 'none'; "
-  "base-uri 'self'; "
-  "frame-ancestors 'none'"
-)
+# The one origin this policy will name that is not us, and only when asked to. See
+# ALLOW_CLOUDFLARE_BEACON in rxonly/config.py for what turning it on concedes and
+# why off is the default; the constant is here because this is the file that has
+# to spell it, and a hostname buried in an f-string is a hostname nobody audits.
+CLOUDFLARE_BEACON_ORIGIN = "https://static.cloudflareinsights.com"
+
+
+def content_security_policy() -> str:
+  """The policy for this process, which depends on one setting and nothing else.
+
+  A function rather than the constant this was, because `script-src` now has two
+  possible values and Config is not loaded at import time. Built once in
+  `create_app` and closed over — the answer cannot change while the process runs,
+  so a per-request rebuild would be work done 200 times a minute to get the same
+  string back.
+
+  One line, no newlines in the value: a literal newline in a header value is
+  rejected over HTTP/2.
+  """
+  script_src = "'self'"
+  if Config.get("ALLOW_CLOUDFLARE_BEACON", False):
+    # script-src only. The beacon reports to `/cdn-cgi/rum` on this origin —
+    # Cloudflare's edge answers that path for a proxied site — so `default-src
+    # 'self'` already permits the reporting half and no `connect-src` is owed.
+    # Verified against the live site rather than assumed, because the widening
+    # nobody checks is the one that turns out to be unnecessary.
+    script_src = f"'self' {CLOUDFLARE_BEACON_ORIGIN}"
+
+  return (
+    "default-src 'self'; "
+    "img-src 'self'; "
+    f"script-src {script_src}; "
+    "style-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'none'"
+  )
 
 # Nothing here needs a sensor, a camera or a location, so nothing here gets one.
 # Same reasoning as the policy above, and it moved for the same reason.
@@ -93,6 +121,10 @@ def create_app() -> Flask:
   app = Flask(__name__)
   app.config["DEBUG"] = Config.get("DEBUG", False)
 
+  # Resolved once, after Config.load() above and before the first request. The
+  # policy is a property of how this process was configured, not of the request.
+  csp = content_security_policy()
+
   app.register_blueprint(api_bp)
   app.register_blueprint(dashboard_bp)
 
@@ -106,7 +138,7 @@ def create_app() -> Flask:
     plain-HTTP development server or a duplicate of the proxy's. See
     deploy/nginx.conf.example, which is now the only place it is set.
     """
-    response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+    response.headers["Content-Security-Policy"] = csp
     response.headers["Permissions-Policy"] = PERMISSIONS_POLICY
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"

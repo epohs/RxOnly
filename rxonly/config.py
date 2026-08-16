@@ -38,9 +38,30 @@ SHARED_CONFIG = {
 # what must not happen, since a message from a node the mesh has never named still
 # links to that node's page. Off by default because a nameless node is usually a
 # beacon or a tracker rather than something a reader was looking for.
+#
+# ALLOW_CLOUDFLARE_BEACON is the only setting on this surface that loosens a
+# security header rather than choosing what to show, so it states its trade here
+# rather than at the place it is read.
+#
+# A site proxied through Cloudflare with Web Analytics enabled has
+# `<script src="https://static.cloudflareinsights.com/beacon.min.js">` injected
+# into its HTML at the edge — after this app has produced the response, and after
+# it set a `script-src 'self'` that refuses exactly that. Which is the directive
+# working, not failing: a proxy putting script into a page is the shape of thing
+# it exists to refuse. The visible consequence is that the analytics collect
+# nothing at all.
+#
+# On says "that particular injection is mine, and expected". It widens the one
+# directive in the policy that actually contains an XSS, to one origin, named in
+# full. Off is the default because this policy's whole claim is that the app loads
+# nothing it does not serve itself, and that claim should hold for anybody who has
+# not decided otherwise for their own install. Turning the injection off in the
+# Cloudflare dashboard instead is the other honest answer and costs a directive
+# nothing — prefer it if the numbers are not being read.
 WEB_CONFIG = {
   "SERVE_DIRECT_MESSAGES": False,     # Should the web app expose archived direct messages
   "LIST_UNNAMED_NODES": False,        # Should nodes with no name appear in node lists
+  "ALLOW_CLOUDFLARE_BEACON": False,   # Permit Cloudflare's injected analytics script in CSP
 }
 
 WEB_SETTINGS = {**SHARED_CONFIG, **WEB_CONFIG}
