@@ -1,3 +1,5 @@
+import sqlite3
+
 from datetime import datetime
 from typing import Any, Optional
 
@@ -5,7 +7,13 @@ from flask import Blueprint, render_template
 
 from rxonly.config import Config
 from rxonly.web.assets import CSS_KEY, JS_KEY, read_manifest
-from rxonly.web.db import get_db_connection, get_meta, node_where, drawn_rows
+from rxonly.web.db import (
+  channel_message_counts,
+  direct_message_counts,
+  get_db_connection,
+  get_meta,
+  node_where,
+)
 
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -36,35 +44,37 @@ def format_iso_timestamp_filter(unix_timestamp: Optional[int]) -> str:
     return ""
 
 
-def get_local_node() -> Optional[dict[str, Any]]:
-  """Fetch the local node info using local_node_id from meta table."""
-  conn = get_db_connection()
-  try:
-    cur = conn.cursor()
+def get_local_node(conn: sqlite3.Connection) -> Optional[dict[str, Any]]:
+  """Fetch the local node info using local_node_id from meta table.
 
-    # meta stores local_node_id in nodes.node_id's hex format
-    local_node_id: Optional[str] = get_meta(conn, "local_node_id")
-    if local_node_id is None:
-      return None
+  Takes the caller's connection rather than opening one. It used to open its own,
+  which meant every dashboard render cost two connections and two sets of startup
+  pragmas for one page — the route had already closed the first by the time it got
+  here. Reads of a page are one connection's worth of work.
+  """
+  cur = conn.cursor()
 
-    cur.execute(
-      """
-      SELECT node_id, short_name, long_name, hardware, role,
-             first_seen, last_seen, battery_level, voltage, snr, rssi,
-             latitude, longitude, altitude
-      FROM nodes
-      WHERE node_id = ?
-      """,
-      (local_node_id,),
-    )
+  # meta stores local_node_id in nodes.node_id's hex format
+  local_node_id: Optional[str] = get_meta(conn, "local_node_id")
+  if local_node_id is None:
+    return None
 
-    node_row = cur.fetchone()
-    if node_row is None:
-      return {"node_id": local_node_id}
+  cur.execute(
+    """
+    SELECT node_id, short_name, long_name, hardware, role,
+           first_seen, last_seen, battery_level, voltage, snr, rssi,
+           latitude, longitude, altitude
+    FROM nodes
+    WHERE node_id = ?
+    """,
+    (local_node_id,),
+  )
 
-    return dict(node_row)
-  finally:
-    conn.close()
+  node_row = cur.fetchone()
+  if node_row is None:
+    return {"node_id": local_node_id}
+
+  return dict(node_row)
 
 
 def format_device_name(node: Optional[dict[str, Any]]) -> str:
@@ -92,43 +102,18 @@ def index() -> str:
   try:
     cur = conn.cursor()
 
-    # Fetch channels with message counts.
-    #
-    # Counting drawn rows, the same clause `/api/stats` counts — this renders the
-    # sidebar and the fast poll rewrites it ten seconds later, so a different rule
-    # here would show one number and then quietly change it to another while the
-    # reader watched. Same reasoning as the node list below.
-    cur.execute(
-      f"""
-      SELECT c.channel_index, c.name, COUNT(m.id) AS message_count
-      FROM channels c
-      LEFT JOIN messages m
-        ON c.channel_index = m.channel_index
-       AND {drawn_rows("messages", "m")}
-      GROUP BY c.channel_index, c.name
-      ORDER BY c.channel_index
-      """
-    )
-    channels: list[dict[str, Any]] = [dict(row) for row in cur.fetchall()]
+    # Channels with the counts their lists will draw, and the two DM figures. Both
+    # come from rxonly.web.db, which is where /api/stats gets them too — this
+    # renders the sidebar and the fast poll rewrites it ten seconds later, so the
+    # two had to agree, and they used to agree by being written out twice with a
+    # comment on each saying so. Same reasoning as the node list below.
+    channels: list[dict[str, Any]] = channel_message_counts(cur)
 
-    # Two DM counts for two places, as in /api/stats: the sidebar prints what the DM
-    # list will draw, the dashboard tile prints what the archive holds.
     serve_direct_messages: bool = Config.get("SERVE_DIRECT_MESSAGES", False)
     if serve_direct_messages:
-      cur.execute("SELECT COUNT(*) AS count FROM direct_messages")
-      total_direct_messages: int = cur.fetchone()["count"]
-
-      cur.execute(
-        f"""
-        SELECT COUNT(*) AS count
-        FROM direct_messages d
-        WHERE {drawn_rows("direct_messages", "d")}
-        """
-      )
-      direct_message_count: int = cur.fetchone()["count"]
+      total_direct_messages, direct_message_count = direct_message_counts(cur)
     else:
-      total_direct_messages: int = 0
-      direct_message_count: int = 0
+      total_direct_messages, direct_message_count = 0, 0
 
     # Fetch nodes (initial page)
     #
@@ -167,6 +152,10 @@ def index() -> str:
     cur.execute("SELECT COUNT(*) AS count FROM channels")
     total_channels: int = cur.fetchone()["count"]
 
+    # Inside the connection, deliberately. This was below, after the close, and
+    # opened a second connection of its own to answer one question about one row.
+    local_node: Optional[dict[str, Any]] = get_local_node(conn)
+
   finally:
     conn.close()
 
@@ -177,7 +166,6 @@ def index() -> str:
   css_filename: Optional[str] = manifest.get(CSS_KEY)
   js_filename: Optional[str] = manifest.get(JS_KEY)
 
-  local_node: Optional[dict[str, Any]] = get_local_node()
   device_name: str = format_device_name(local_node)
 
   return render_template(

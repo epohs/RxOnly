@@ -20,6 +20,28 @@
      Tapback (Reaction) Utilities
      ------------------------------------------ */
 
+  /* The three numbers that decide what a reaction is and how a row shows the ones
+     it collected. Named here rather than left inline, and gathered rather than
+     scattered, because they are maintained by hand in two languages: mesh-console's
+     ui/tapbacks.py carries MAX_TAPBACK_CLUSTERS, GROUP_THRESHOLD and MAX_PILLS, and
+     each of its comments cites the line of this file it is supposed to match.
+
+     Two of the three had nothing to cite. `3` sat inside a comparison in
+     is_emoji_only and `5` inside one in render_tapbacks, so the Python side was
+     pointing at magic numbers and a change here would have parted the two silently —
+     a reaction grouping one way in a terminal and another in a browser, from the
+     same archive. Change one, change the others. */
+
+  // A reaction is one to three emoji. Four is a short message.
+  var max_tapback_clusters = 3;
+
+  // More than this many of one emoji collapse into a single count pill, which is
+  // then not a link to any one of them.
+  var group_threshold = 5;
+
+  // Pills shown before the rest become "+N more".
+  var max_pills = 10;
+
   /**
    * In-memory store for tapbacks whose parent message is not yet in the DOM.
    * Keyed by parent message_id (the reply_to value).
@@ -44,7 +66,7 @@
     var segments = Array.from(segmenter.segment(trimmed));
 
     // Allow 1-3 grapheme clusters
-    if (segments.length < 1 || segments.length > 3) return false;
+    if (segments.length < 1 || segments.length > max_tapback_clusters) return false;
 
     // Verify each segment looks like emoji, not a letter/digit/punctuation
     // Extended_Pictographic covers emoji; Emoji_Component covers modifiers/ZWJ
@@ -208,10 +230,9 @@
 
     // Build pills: individual for small groups, grouped count for >5 of same emoji
     var pills = [];
-    var max_pills = 10;
 
     groups.forEach(function(group_tapbacks, emoji) {
-      if (group_tapbacks.length > 5) {
+      if (group_tapbacks.length > group_threshold) {
         // Collapse into a single grouped count pill
         pills.push(create_grouped_tapback(emoji, group_tapbacks.length));
       } else {

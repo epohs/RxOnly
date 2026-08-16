@@ -289,6 +289,17 @@
     return parts.join(" ");
   }
 
+  /* Escape for a *text node*, and only for one.
+
+     `<`, `>` and `&` come back escaped; `"` and `'` deliberately do not, because
+     the browser does not escape them either — a quote inside text content is just
+     a quote. That makes this correct for everything it is used for here, which is
+     always content between tags, and wrong for an attribute value, where a `"`
+     would close the attribute and everything after it would be markup.
+
+     So: never `'<a href="' + escape_html(url) + '">'`. Build the element and use
+     `setAttribute`, which escapes by construction — see `render_breadcrumbs`, which
+     is where that lesson was learned. */
   function escape_html(text) {
     var div = document.createElement("div");
     div.textContent = text;
@@ -1198,16 +1209,39 @@
      Breadcrumb Functions
      ------------------------------------------ */
 
-  function render_breadcrumbs() {
-    var breadcrumbs_html = app_state.breadcrumbs.map(function(crumb, index) {
-      var is_current = index === app_state.breadcrumbs.length - 1;
-      if (is_current) {
-        return '<li><a href="' + crumb.href + '" aria-current="page" data-view="' + crumb.view + '">' + escape_html(crumb.label) + '</a></li>';
-      }
-      return '<li><a href="' + crumb.href + '" data-view="' + crumb.view + '">' + escape_html(crumb.label) + '</a></li>';
-    }).join("");
+  /* Built with DOM calls rather than by concatenating markup, which is what every
+     other renderer here does and is why this was the odd one out.
 
-    dom_elements.breadcrumbs_list.innerHTML = breadcrumbs_html;
+     `crumb.href` and `crumb.view` were being interpolated straight into `href="..."`
+     and `data-view="..."`, and `escape_html` could not have covered them anyway:
+     it escapes for a *text node* — `div.textContent = s; return div.innerHTML` —
+     which leaves `"` alone, because a quote in text is just a quote. Inside an
+     attribute a quote closes it. So the label was safe and the two attributes were
+     not, and the only reason nothing has gone wrong is that today's hrefs happen to
+     come from `getAttribute("href")` on server-rendered links and from
+     `encodeURIComponent`. That is a fact about the callers, not a property of this
+     function, and it was one caller away from being untrue.
+
+     `setAttribute` and `textContent` escape by construction, so there is nothing
+     left to remember. */
+  function render_breadcrumbs() {
+    var list = dom_elements.breadcrumbs_list;
+    list.textContent = "";
+
+    app_state.breadcrumbs.forEach(function(crumb, index) {
+      var item = document.createElement("li");
+      var link = document.createElement("a");
+
+      link.setAttribute("href", crumb.href);
+      link.setAttribute("data-view", crumb.view);
+      if (index === app_state.breadcrumbs.length - 1) {
+        link.setAttribute("aria-current", "page");
+      }
+      link.textContent = crumb.label;
+
+      item.appendChild(link);
+      list.appendChild(item);
+    });
   }
 
   function set_breadcrumbs(crumbs) {

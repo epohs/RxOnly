@@ -15,20 +15,26 @@ server {
 
 
     # ---- Security Headers ----
-
-    # Enforce HTTPS usage by browsers
+    #
+    # Only one, and that is deliberate. Content-Security-Policy,
+    # Permissions-Policy, X-Content-Type-Options, X-Frame-Options and
+    # Referrer-Policy are all set by the application itself, in
+    # `set_security_headers` in rxonly/web/__init__.py — so they arrive on every
+    # response whether or not this file is the thing serving it. They used to be
+    # split between the two layers, which meant a deployment behind a tunnel or a
+    # different proxy silently lost the Content-Security-Policy while keeping the
+    # weaker three. Adding them back here would not be harmless: nginx `add_header`
+    # appends rather than replaces, browsers enforce the intersection of every
+    # policy they are sent, and two copies that drift apart fail in whichever
+    # direction is stricter, silently.
+    #
+    # HSTS stays here because it is the one claim the application cannot make. It
+    # is about the transport, and Flask does not know whether it was reached over
+    # TLS — this server block does, because it is the thing terminating it.
+    #
     # Set max-age to 86400 (1 day) for safe experimentation
     # Increase to 2592000 (30 days) for better modern conformity
     add_header Strict-Transport-Security "max-age=86400" always;
-
-    # Restrict where content can be loaded from (prevents XSS and injection)
-    # NOTE: The header value must stay on a single line. Literal newlines in a
-    # header value are rejected over HTTP/2 (Chrome: ERR_HTTP2_PROTOCOL_ERROR).
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" always;
-
-    # Disable access to browser features and sensors
-    # NOTE: Single line only — same HTTP/2 restriction as above.
-    add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
 
     location = /favicon.ico {
         alias /path/to/RxOnly/rxonly/web/static/img/favicon.ico;

@@ -61,7 +61,7 @@ def get_nodes() -> Response:
       SELECT node_id, short_name, long_name, hardware, role,
              first_seen, last_seen, battery_level, voltage,
              snr, rssi, latitude, longitude, altitude,
-             temperature, humidity, pressure, channel_util, 
+             temperature, humidity, pressure, channel_util,
              air_util_tx, uptime_seconds, hops_away
       FROM nodes
       {where}
@@ -107,7 +107,7 @@ def get_node(node_id: str) -> Response:
       SELECT node_id, short_name, long_name, hardware, role,
              first_seen, last_seen, battery_level, voltage,
              snr, rssi, latitude, longitude, altitude,
-             temperature, humidity, pressure, channel_util, 
+             temperature, humidity, pressure, channel_util,
              air_util_tx, uptime_seconds, hops_away
       FROM nodes
       WHERE node_id = ?

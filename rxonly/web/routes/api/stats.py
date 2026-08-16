@@ -4,7 +4,14 @@ from flask import Response
 
 from rxonly.config import Config
 from rxonly.web.routes.api import api_bp, json_response
-from rxonly.web.db import get_db_connection, get_meta, node_where, drawn_rows
+from rxonly.web.db import (
+  channel_message_counts,
+  direct_message_counts,
+  drawn_rows,
+  get_db_connection,
+  get_meta,
+  node_where,
+)
 
 
 @api_bp.route("/stats", methods=["GET"])
@@ -51,29 +58,15 @@ def get_stats() -> Response:
     total_messages: int = cur.fetchone()["count"]
 
     # Two DM counts, because the sidebar and the dashboard are asking two questions.
-    #
-    # `total_direct_messages` is how many rows the archive holds — an archive figure
-    # beside `total_messages`, which is the one that matters when thinking about
-    # MAX_MESSAGES pruning. `direct_message_count` is how many the DM list will draw,
-    # which is what belongs next to a name in the sidebar and is the number that gets
-    # bolded. They differ by the folded reactions, and each is right where it is.
-    # See `channel_counts` below, which is this same figure per channel.
+    # Both come from `direct_message_counts`, which is also what the dashboard route
+    # renders its first paint from — see there for what each one means and why they
+    # differ. Whether to ask at all stays here: exposing direct messages is this
+    # process's decision, and defaults to no regardless of what the archive holds.
     serve_direct_messages: bool = Config.get("SERVE_DIRECT_MESSAGES", False)
     if serve_direct_messages:
-      cur.execute("SELECT COUNT(*) AS count FROM direct_messages")
-      total_direct_messages: int = cur.fetchone()["count"]
-
-      cur.execute(
-        f"""
-        SELECT COUNT(*) AS count
-        FROM direct_messages d
-        WHERE {drawn_rows("direct_messages", "d")}
-        """
-      )
-      direct_message_count: int = cur.fetchone()["count"]
+      total_direct_messages, direct_message_count = direct_message_counts(cur)
     else:
-      total_direct_messages: int = 0
-      direct_message_count: int = 0
+      total_direct_messages, direct_message_count = 0, 0
 
     cur.execute("SELECT COUNT(*) AS count FROM channels")
     total_channels: int = cur.fetchone()["count"]
@@ -86,22 +79,12 @@ def get_stats() -> Response:
     # onto their parents. A count that names a set the reader cannot page to the end
     # of is the same mistake `total_nodes` above already avoids.
     #
-    # The predicate goes in the ON clause rather than a WHERE so a channel whose rows
-    # are all folded away still reports `0` instead of dropping out of the result and
-    # leaving the client to fall back on `|| 0`.
-    cur.execute(
-      f"""
-      SELECT c.channel_index, COUNT(m.id) AS message_count
-      FROM channels c
-      LEFT JOIN messages m
-        ON c.channel_index = m.channel_index
-       AND {drawn_rows("messages", "m")}
-      GROUP BY c.channel_index
-      """
-    )
+    # `channel_message_counts` carries the channel's name as well, which this
+    # endpoint has no use for and drops; the dashboard route renders it. One query
+    # in one place rather than two spellings of it — see rxonly/web/db.py.
     channel_counts: dict[int, int] = {
       row["channel_index"]: row["message_count"]
-      for row in cur.fetchall()
+      for row in channel_message_counts(cur)
     }
 
     # When each channel last heard from somebody other than this device, as the rx_time

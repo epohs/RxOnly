@@ -2,7 +2,7 @@ import logging
 import sqlite3
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from rxonly.config import Config
 
@@ -109,6 +109,70 @@ def drawn_rows(table: str, alias: str) -> str:
       AND EXISTS (SELECT 1 FROM {table} p WHERE p.message_id = {alias}.reply_to)
     )
   """
+
+
+def channel_message_counts(cur: sqlite3.Cursor) -> list[dict[str, Any]]:
+  """Every channel, with the number of rows its message list will actually draw.
+
+  `node_where` and `drawn_rows` exist so that a count and the list it counts cannot
+  disagree; this exists so that two *callers* of them cannot. The dashboard renders
+  the sidebar and `/api/stats` rewrites it ten seconds later, and they were running
+  this query twice — near-identically, three files apart, with comments on each
+  telling the reader to keep them in step. The dashboard's version carried `c.name`
+  and an ORDER BY that stats did not need; that is the whole of the difference, and
+  a column already on the join is cheaper than a second query to maintain.
+
+  Ordered by channel_index, and every channel is present even when nothing in it
+  is drawn — the predicate is on the LEFT JOIN rather than in a WHERE, so a channel
+  whose rows are all folded reactions reports 0 instead of dropping out and leaving
+  the client to fall back on `|| 0`.
+  """
+  cur.execute(
+    f"""
+    SELECT c.channel_index, c.name, COUNT(m.id) AS message_count
+    FROM channels c
+    LEFT JOIN messages m
+      ON c.channel_index = m.channel_index
+     AND {drawn_rows("messages", "m")}
+    GROUP BY c.channel_index, c.name
+    ORDER BY c.channel_index
+    """
+  )
+  return [dict(row) for row in cur.fetchall()]
+
+
+def direct_message_counts(cur: sqlite3.Cursor) -> tuple[int, int]:
+  """`(held, drawn)` — how many direct messages the archive has, and how many list.
+
+  Two numbers because the dashboard and the sidebar are asking two questions. The
+  first is an archive figure and belongs beside `total_messages`, which is what
+  matters when thinking about MAX_DIRECT_MESSAGES pruning. The second is what the
+  DM list will draw, which is what belongs next to a name in the sidebar and is the
+  number that gets bolded. They differ by the folded reactions, and each is right
+  where it is.
+
+  Extracted for the same reason `channel_message_counts` above was: the caller that
+  renders the sidebar and the caller that refreshes it were carrying identical
+  copies of both queries and identical comments explaining why they had to match.
+
+  **The caller decides whether to ask at all.** Whether direct messages are exposed
+  is a decision about this process rather than about the archive, so this does not
+  read SERVE_DIRECT_MESSAGES — a helper that silently returned zeroes would make
+  "off" and "none" indistinguishable at the call site.
+  """
+  cur.execute("SELECT COUNT(*) AS count FROM direct_messages")
+  held: int = cur.fetchone()["count"]
+
+  cur.execute(
+    f"""
+    SELECT COUNT(*) AS count
+    FROM direct_messages d
+    WHERE {drawn_rows("direct_messages", "d")}
+    """
+  )
+  drawn: int = cur.fetchone()["count"]
+
+  return held, drawn
 
 
 class SchemaVersionMismatch(RuntimeError):
