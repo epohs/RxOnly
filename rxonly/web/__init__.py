@@ -21,15 +21,29 @@ from rxonly.web.routes import api_bp, dashboard_bp
 # and JS from its own static directory, loads no fonts, no CDN and no remote
 # images, and makes no cross-origin requests.
 #
-# **`'unsafe-inline'` on style-src is a concession nothing currently uses**, and it
-# is byte-for-byte the policy this project already shipped at the proxy, kept
-# unchanged so that moving it here moved it and nothing else. Dropping it would be
-# strictly tighter and looks safe: there is not one inline `style` attribute or
-# `<style>` block in the templates, and no JavaScript here touches `.style`,
-# `cssText` or `setProperty`, which are what a `style-src` without it blocks. It
-# stays for now because that is a change to the policy rather than to where the
-# policy lives, and the two are worth landing separately — the failure mode of
-# being wrong is a live site with no styling at all.
+# **`style-src` is `'self'` alone.** It carried `'unsafe-inline'` as inherited from
+# the proxy config this policy was moved out of, kept through that move so that
+# moving it moved nothing else, and dropped here as its own change for the reason
+# given then: the failure mode of being wrong is a live site with no styling at
+# all, so it wanted a look at the real page rather than a grep.
+#
+# Nothing needs it. There is no inline `style` attribute and no `<style>` block in
+# any template, and the JavaScript changes appearance exclusively through
+# `classList` — 29 uses across the four modules, and not one `.style`, `cssText`,
+# `setProperty` or `setAttribute("style", …)`, in the sources or in the built
+# bundle that is what actually ships. Those are what a `style-src` without
+# `'unsafe-inline'` blocks, and this app does none of them.
+#
+# **The one thing that does carry inline styles is `img/favicon.svg`**, whose every
+# path element has a `style=` attribute. It is not an exception to the above: it is
+# fetched as an image through `<link rel="icon">`, not parsed into this document,
+# so its styles are never inline styles *of this page*. Browsers render an SVG
+# loaded as an image in a restricted mode with no scripting and no browsing
+# context, and do not apply the embedding document's style-src to its contents.
+# Verified rather than assumed — the live favicon still draws, and the console
+# reports no violation. Worth knowing before someone inlines that SVG into a
+# template one day, because that is the change that would need this concession
+# back, and it would be a `<style>`-free `<svg>` element that needed it.
 #
 # One line, no newlines in the value: a literal newline in a header value is
 # rejected over HTTP/2.
@@ -37,7 +51,7 @@ CONTENT_SECURITY_POLICY = (
   "default-src 'self'; "
   "img-src 'self'; "
   "script-src 'self'; "
-  "style-src 'self' 'unsafe-inline'; "
+  "style-src 'self'; "
   "object-src 'none'; "
   "base-uri 'self'; "
   "frame-ancestors 'none'"
