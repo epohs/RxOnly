@@ -1123,7 +1123,9 @@
    * @param {number|null} [options.channel_index] - Channel index (ignored for DMs)
    * @param {string|null} [options.peer] - Narrow DMs to one conversation (ignored for channels)
    * @param {number|null} [options.after_rx_time] - Load messages after this timestamp
+   * @param {number|null} [options.after_id] - Row id at that second, the cursor's other half
    * @param {number|null} [options.before_rx_time] - Load messages before this timestamp
+   * @param {number|null} [options.before_id] - Row id at that second, the cursor's other half
    * @param {boolean} [options.newest] - Load the newest page
    * @param {number} [options.limit=50] - Page size
    * @returns {Promise<Object>} API response with meta + messages/direct_messages
@@ -1139,11 +1141,23 @@
     if (is_dm && options.peer) {
       params.set("peer", options.peer);
     }
+    // A cursor is the (rx_time, id) pair. rx_time is whole seconds off the mesh, so
+    // two messages routinely share one and a page that ends inside a tie has to say
+    // which row of it it ended on — a timestamp alone asks for everything older than
+    // the whole second and steps over the rest of it. The id is sent separately
+    // rather than as a packed cursor because the bare timestamp form still works and
+    // old bookmarks carry it.
     if (options.after_rx_time != null) {
       params.set("after_rx_time", String(options.after_rx_time));
+      if (options.after_id != null) {
+        params.set("after_id", String(options.after_id));
+      }
     }
     if (options.before_rx_time != null) {
       params.set("before_rx_time", String(options.before_rx_time));
+      if (options.before_id != null) {
+        params.set("before_id", String(options.before_id));
+      }
     }
     if (options.newest) {
       params.set("newest", "1");

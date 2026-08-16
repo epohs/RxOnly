@@ -111,6 +111,82 @@ def drawn_rows(table: str, alias: str) -> str:
   """
 
 
+def cursor_clause(
+  cur: sqlite3.Cursor,
+  table: str,
+  alias: str,
+  *,
+  direction: str,
+  rx_time: int,
+  row_id: Optional[int] = None,
+  scope: str = "",
+  scope_params: tuple[Any, ...] = (),
+) -> tuple[str, list[Any]]:
+  """"Everything older/newer than this row", as a condition and its parameters.
+
+  **A cursor is an `(rx_time, id)` pair, not a timestamp.** rx_time is whole seconds
+  off the mesh, so two messages in one channel routinely share one. A bare
+  `rx_time < cursor` drops *every* row in the boundary second, including ones the
+  previous page never showed — and the next page-back asks for something older still,
+  so those rows are skipped once and skipped permanently. The fixture archive carries
+  the shape: two messages at the same second in channel 0, one of them the parent of a
+  later tapback, so losing it also stranded a reaction with nothing to attach to.
+
+  Every predicate on either side of a page boundary is built here, which is the point.
+  The page query and the two has_more probes beside it used to be written out
+  separately, the probes comparing the pair and the page comparing the timestamp, and
+  the server would correctly report that older rows existed and then decline to serve
+  them. One spelling cannot disagree with itself.
+
+  **`row_id` is optional because the bare form has to keep working.** Bookmarks and
+  hand-written callers carry `?before_rx_time=` alone, and the client did too before it
+  learned to send the id. Given only a second, the boundary row is resolved against the
+  archive as the newest row in that second when paging back and the oldest when paging
+  forward — which is the row a caller that had just been served a page must have
+  stopped on, and which makes the bare form lossless rather than merely unchanged.
+
+  The residual, since a bare cursor cannot name a row: a caller paging with one through
+  a run of *three or more* messages in a single second, with a page smaller than the
+  run, is handed the same window again rather than advancing. Sending `before_id` is
+  what makes progress, and every caller in this project now does. That is a stall a
+  reader can see and retry past; the timestamp-only cursor it replaces lost rows
+  silently.
+
+  `scope` is the restriction the page itself is under — a channel, a conversation —
+  and is read only when `row_id` is None, because a tie has to be resolved among the
+  rows the caller can actually see. It and `table`/`alias` are literals from the call
+  sites and never arrive from a request, so interpolating them is not an injection
+  vector.
+  """
+  if direction not in ("before", "after"):
+    raise ValueError(f"direction is 'before' or 'after', not {direction!r}")
+
+  comparison = "<" if direction == "before" else ">"
+
+  if row_id is None:
+    edge = "MAX" if direction == "before" else "MIN"
+    scope_filter = f" AND {scope}" if scope else ""
+    cur.execute(
+      f"""
+      SELECT {edge}({alias}.id) AS id
+      FROM {table} {alias}
+      WHERE {alias}.rx_time = ?{scope_filter}
+      """,
+      [rx_time, *scope_params],
+    )
+    resolved = cur.fetchone()["id"]
+    # Nothing carries that second — a cursor pointing between two of them, or past
+    # the end. The tie half of the condition then matches nothing whatever id goes
+    # in it, and the whole reduces to the plain inequality.
+    row_id = resolved if resolved is not None else 0
+
+  condition = (
+    f"({alias}.rx_time {comparison} ? "
+    f"OR ({alias}.rx_time = ? AND {alias}.id {comparison} ?))"
+  )
+  return condition, [rx_time, rx_time, row_id]
+
+
 def channel_message_counts(cur: sqlite3.Cursor) -> list[dict[str, Any]]:
   """Every channel, with the number of rows its message list will actually draw.
 

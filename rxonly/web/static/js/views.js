@@ -526,6 +526,7 @@
         channel_index: is_direct_messages ? null : app_state.current_channel_index,
         peer: is_direct_messages ? app_state.current_peer : null,
         after_rx_time: app_state.messages_newest_rx_time,
+        after_id: app_state.messages_newest_id,
       });
 
       var messages = is_direct_messages ? data.direct_messages : data.messages;

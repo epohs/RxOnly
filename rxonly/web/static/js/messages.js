@@ -641,12 +641,20 @@
       if (last_read) {
         // Resume mode: fetch a page ending at the last-read message,
         // then a page of newer messages after it.
-        // Using rx_time + 1 because the API uses strict "rx_time < ?"
+        //
+        // The read position is stored by message_id and rx_time, never by row id —
+        // that number belongs to the archive and a browser has no business
+        // remembering it — so the cursor here is (rx_time + 1, 0): everything
+        // strictly before the first row of the second *after* the last-read one,
+        // which is everything up to and including it. The +1 was already here for
+        // the same reason when the API compared timestamps alone; pinning the id at
+        // 0 is what keeps it meaning exactly that now the API compares the pair.
         var context_data = await R.fetch_message_page({
           is_dm: is_dm,
           channel_index: channel_index,
           peer: peer,
           before_rx_time: last_read.rx_time + 1,
+          before_id: 0,
         });
         var context_messages = is_dm ? context_data.direct_messages : context_data.messages;
 
@@ -656,12 +664,18 @@
           return;
         }
 
-        // Also fetch a page of newer messages beyond the last-read point
+        // Also fetch a page of newer messages beyond the last-read point, starting
+        // from the cursor the context page reports rather than from last_read's
+        // timestamp: meta.newest is the exact row the page above ended on, so the
+        // two halves meet with nothing between them and nothing served twice. A
+        // bare `after_rx_time: last_read.rx_time` could not say that — it would ask
+        // for everything after a whole second the context page had already drawn.
         var newer_data = await R.fetch_message_page({
           is_dm: is_dm,
           channel_index: channel_index,
           peer: peer,
-          after_rx_time: last_read.rx_time,
+          after_rx_time: context_data.meta.newest[0],
+          after_id: context_data.meta.newest[1],
         });
         var newer_messages = is_dm ? newer_data.direct_messages : newer_data.messages;
 
@@ -1367,6 +1381,7 @@
         channel_index: channel_index,
         peer: conversation.peer,
         before_rx_time: app_state.messages_oldest_rx_time,
+        before_id: app_state.messages_oldest_id,
       });
 
       var messages = is_dm ? data.direct_messages : data.messages;
@@ -1418,6 +1433,7 @@
         channel_index: channel_index,
         peer: conversation.peer,
         after_rx_time: app_state.messages_newest_rx_time,
+        after_id: app_state.messages_newest_id,
       });
 
       var messages = is_dm ? data.direct_messages : data.messages;

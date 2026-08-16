@@ -4,7 +4,9 @@ from flask import request, Response
 
 from rxonly.config import Config
 from rxonly.web.routes.api import api_bp, json_response
-from rxonly.web.db import get_db_connection, get_meta, get_meta_int, drawn_rows
+from rxonly.web.db import (
+  cursor_clause, get_db_connection, get_meta, get_meta_int, drawn_rows
+)
 
 
 # See FALLBACK_MAX_MESSAGES in messages.py.
@@ -35,6 +37,7 @@ def get_direct_messages() -> Response:
       "meta": {
         "limit": 0, "total": 0, "max_direct_messages": 0,
         "has_more_older": False, "has_more_newer": False,
+        "oldest": None, "newest": None,
       },
       "direct_messages": [],
     }
@@ -47,9 +50,13 @@ def get_direct_messages() -> Response:
   # is what a DM detail's context and any old bookmark still get.
   peer: Optional[str] = request.args.get("peer", type=str)
 
-  # Cursor-based pagination parameters
+  # Cursor-based pagination parameters. Pairs, as in messages.py and for the same
+  # reason — see `cursor_clause`. Kept as its own copy rather than shared with the
+  # channel pager, which is how the two endpoints have always been arranged.
   after_rx_time: Optional[int] = request.args.get("after_rx_time", type=int)
+  after_id: Optional[int] = request.args.get("after_id", type=int)
   before_rx_time: Optional[int] = request.args.get("before_rx_time", type=int)
+  before_id: Optional[int] = request.args.get("before_id", type=int)
   newest: bool = request.args.get("newest", default="", type=str) == "1"
 
   conn = get_db_connection()
@@ -65,32 +72,47 @@ def get_direct_messages() -> Response:
     if limit > max_direct_messages:
       limit = max_direct_messages
 
-    # Build WHERE clause parts
-    where_parts: list[str] = []
-    params: list[Any] = []
+    # Which conversation this page is of, held apart from where in it the page
+    # starts, so the total, the cursor's tie probe and both has_more probes are all
+    # under the restriction the page itself is under.
+    scope_parts: list[str] = []
+    scope_params: list[Any] = []
 
     if peer:
-      where_parts.append(_CONVERSATION_WITH)
-      params.extend([peer, peer])
+      scope_parts.append(_CONVERSATION_WITH)
+      scope_params.extend([peer, peer])
+
+    scope = " AND ".join(scope_parts)
+
+    # Build WHERE clause parts
+    where_parts: list[str] = list(scope_parts)
+    params: list[Any] = list(scope_params)
 
     if after_rx_time is not None and not newest:
-      where_parts.append("dm.rx_time > ?")
-      params.append(after_rx_time)
+      condition, cursor_params = cursor_clause(
+        cur, "direct_messages", "dm",
+        direction="after", rx_time=after_rx_time, row_id=after_id,
+        scope=scope, scope_params=tuple(scope_params),
+      )
+      where_parts.append(condition)
+      params.extend(cursor_params)
     elif before_rx_time is not None and not newest:
-      where_parts.append("dm.rx_time < ?")
-      params.append(before_rx_time)
+      condition, cursor_params = cursor_clause(
+        cur, "direct_messages", "dm",
+        direction="before", rx_time=before_rx_time, row_id=before_id,
+        scope=scope, scope_params=tuple(scope_params),
+      )
+      where_parts.append(condition)
+      params.extend(cursor_params)
 
     where_clause = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
     # Total count (unfiltered by cursor, scoped to the conversation when there is
     # one — the total describes what the caller is paging through)
-    if peer:
-      cur.execute(
-        f"SELECT COUNT(*) AS count FROM direct_messages dm WHERE {_CONVERSATION_WITH}",
-        (peer, peer),
-      )
-    else:
-      cur.execute("SELECT COUNT(*) AS count FROM direct_messages")
+    scope_where = (" WHERE " + scope) if scope else ""
+    cur.execute(
+      f"SELECT COUNT(*) AS count FROM direct_messages dm{scope_where}", scope_params
+    )
     total: int = cur.fetchone()["count"]
 
     # Determine sort order
@@ -129,37 +151,35 @@ def get_direct_messages() -> Response:
     has_more_newer = False
 
     if rows:
-      oldest_rx_time = rows[0]["rx_time"]
-      newest_rx_time = rows[-1]["rx_time"]
-      oldest_id = rows[0]["id"]
-      newest_id = rows[-1]["id"]
-
       # Scoped to the conversation when there is one, like the total above — a
       # "more older" that points at another thread's rows would make the client
       # page forever towards messages this view will never draw. Same shape as
-      # the channel_index scoping in messages.py.
-      older_where = ["(dm.rx_time < ? OR (dm.rx_time = ? AND dm.id < ?))"]
-      older_params: list[Any] = [oldest_rx_time, oldest_rx_time, oldest_id]
-      if peer:
-        older_where.append(_CONVERSATION_WITH)
-        older_params.extend([peer, peer])
+      # the channel_index scoping in messages.py, and the same helper builds the
+      # condition here as built the page's, so the two cannot mean different things.
+      scope_filter = f" AND {scope}" if scope else ""
 
+      older_condition, older_params = cursor_clause(
+        cur, "direct_messages", "dm",
+        direction="before", rx_time=rows[0]["rx_time"], row_id=rows[0]["id"],
+        scope=scope, scope_params=tuple(scope_params),
+      )
       # LIMIT 1 stops at first match
       cur.execute(
-        f"SELECT 1 FROM direct_messages dm WHERE {' AND '.join(older_where)} LIMIT 1",
-        older_params,
+        f"SELECT 1 FROM direct_messages dm "
+        f"WHERE {older_condition}{scope_filter} LIMIT 1",
+        [*older_params, *scope_params],
       )
       has_more_older = cur.fetchone() is not None
 
-      newer_where = ["(dm.rx_time > ? OR (dm.rx_time = ? AND dm.id > ?))"]
-      newer_params: list[Any] = [newest_rx_time, newest_rx_time, newest_id]
-      if peer:
-        newer_where.append(_CONVERSATION_WITH)
-        newer_params.extend([peer, peer])
-
+      newer_condition, newer_params = cursor_clause(
+        cur, "direct_messages", "dm",
+        direction="after", rx_time=rows[-1]["rx_time"], row_id=rows[-1]["id"],
+        scope=scope, scope_params=tuple(scope_params),
+      )
       cur.execute(
-        f"SELECT 1 FROM direct_messages dm WHERE {' AND '.join(newer_where)} LIMIT 1",
-        newer_params,
+        f"SELECT 1 FROM direct_messages dm "
+        f"WHERE {newer_condition}{scope_filter} LIMIT 1",
+        [*newer_params, *scope_params],
       )
       has_more_newer = cur.fetchone() is not None
 
@@ -173,6 +193,9 @@ def get_direct_messages() -> Response:
       "has_more_older": has_more_older,
       "has_more_newer": has_more_newer,
       "max_direct_messages": max_direct_messages,
+      # The next page's cursor in either direction, as messages.py reports it.
+      "oldest": [rows[0]["rx_time"], rows[0]["id"]] if rows else None,
+      "newest": [rows[-1]["rx_time"], rows[-1]["id"]] if rows else None,
     },
     "direct_messages": rows,
   }

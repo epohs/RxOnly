@@ -123,10 +123,21 @@ It’s a low-friction way to surface local mesh-native conversations to a wider 
 - `GET /api/nodes` - List all nodes (supports `?limit`, `?offset`, `?search`)
 - `GET /api/nodes/<node_id>` - Single node details
 - `GET /api/channels` - List tracked channels
-- `GET /api/messages` - Channel messages (supports `?channel_index`, `?limit`, `?after_rx_time`, `?before_rx_time`, `?newest`)
+- `GET /api/messages` - Channel messages (supports `?channel_index`, `?limit`, `?newest`, and a cursor)
 - `GET /api/messages/<message_id>` - Single message details
-- `GET /api/direct-messages` - Direct messages received by local node
+- `GET /api/direct-messages` - Direct messages received by local node (supports `?peer`, `?limit`, `?newest`, and a cursor)
 - `GET /api/direct-messages/<message_id>` - Single DM details
+
+Both message endpoints page with an `(rx_time, id)` cursor: `?before_rx_time=&before_id=`
+to walk back, `?after_rx_time=&after_id=` to walk forward. Each response reports the
+cursor for the next page in either direction as `meta.oldest` and `meta.newest`, so a
+caller never has to reassemble one out of the rows.
+
+The id is optional and a bare `?before_rx_time=` still pages — old bookmarks carry that
+form. It is resolved against the archive rather than compared alone, because `rx_time`
+is whole seconds off the mesh and a timestamp cannot say which row of a shared second a
+page ended on. Sending the id is what makes a walk exact; see `cursor_clause` in
+`rxonly/web/db.py` for the one case where the bare form still can't be.
 
 
 ## Helpful commands

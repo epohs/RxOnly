@@ -3,7 +3,7 @@ from typing import Any, Optional
 from flask import request, Response
 
 from rxonly.web.routes.api import api_bp, json_response
-from rxonly.web.db import get_db_connection, get_meta_int
+from rxonly.web.db import cursor_clause, get_db_connection, get_meta_int
 
 
 # Page size to clamp to when the collector hasn't published max_messages. Matches
@@ -19,9 +19,13 @@ def get_messages() -> Response:
   limit: int = request.args.get("limit", default=50, type=int)
   channel_index: Optional[int] = request.args.get("channel_index", type=int)
 
-  # Cursor-based pagination parameters
+  # Cursor-based pagination parameters. A cursor is an `(rx_time, id)` pair; the id
+  # is optional and the timestamp alone still pages, for the reasons and with the
+  # one caveat set out on `cursor_clause`.
   after_rx_time: Optional[int] = request.args.get("after_rx_time", type=int)
+  after_id: Optional[int] = request.args.get("after_id", type=int)
   before_rx_time: Optional[int] = request.args.get("before_rx_time", type=int)
+  before_id: Optional[int] = request.args.get("before_id", type=int)
   newest: bool = request.args.get("newest", default="", type=str) == "1"
 
   conn = get_db_connection()
@@ -37,31 +41,46 @@ def get_messages() -> Response:
     if limit > max_messages:
       limit = max_messages
 
-    # Build WHERE clause parts
-    where_parts: list[str] = []
-    params: list[Any] = []
+    # What this page is *of*, held apart from where in it the page starts. The
+    # total, the cursor's tie probe and both has_more probes are all under the same
+    # restriction the page is, and a channel filter that reached only some of them is
+    # how the pager came to disagree with its own has_more in the first place.
+    scope_parts: list[str] = []
+    scope_params: list[Any] = []
 
     if channel_index is not None:
-      where_parts.append("m.channel_index = ?")
-      params.append(channel_index)
+      scope_parts.append("m.channel_index = ?")
+      scope_params.append(channel_index)
+
+    scope = " AND ".join(scope_parts)
+
+    # Build WHERE clause parts
+    where_parts: list[str] = list(scope_parts)
+    params: list[Any] = list(scope_params)
 
     if after_rx_time is not None and not newest:
-      where_parts.append("m.rx_time > ?")
-      params.append(after_rx_time)
+      condition, cursor_params = cursor_clause(
+        cur, "messages", "m",
+        direction="after", rx_time=after_rx_time, row_id=after_id,
+        scope=scope, scope_params=tuple(scope_params),
+      )
+      where_parts.append(condition)
+      params.extend(cursor_params)
     elif before_rx_time is not None and not newest:
-      where_parts.append("m.rx_time < ?")
-      params.append(before_rx_time)
+      condition, cursor_params = cursor_clause(
+        cur, "messages", "m",
+        direction="before", rx_time=before_rx_time, row_id=before_id,
+        scope=scope, scope_params=tuple(scope_params),
+      )
+      where_parts.append(condition)
+      params.extend(cursor_params)
 
     where_clause = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
-    # Total count for this channel (unfiltered by cursor)
-    if channel_index is not None:
-      cur.execute(
-        "SELECT COUNT(*) AS count FROM messages WHERE channel_index = ?",
-        (channel_index,),
-      )
-    else:
-      cur.execute("SELECT COUNT(*) AS count FROM messages")
+    # Total count for this channel (unfiltered by cursor). One expression rather
+    # than a branch per scope, so a new scope cannot arrive with a total ignoring it.
+    scope_where = (" WHERE " + scope) if scope else ""
+    cur.execute(f"SELECT COUNT(*) AS count FROM messages m{scope_where}", scope_params)
     total: int = cur.fetchone()["count"]
 
     # Determine sort order
@@ -102,34 +121,32 @@ def get_messages() -> Response:
     has_more_newer = False
 
     if rows:
-      oldest_rx_time = rows[0]["rx_time"]
-      newest_rx_time = rows[-1]["rx_time"]
-      oldest_id = rows[0]["id"]
-      newest_id = rows[-1]["id"]
+      # Built by the same helper the page above used, against the ends of the page
+      # just served. Scoped like it too — a "more older" pointing at another
+      # channel's rows would make the client page towards messages it never draws.
+      scope_filter = f" AND {scope}" if scope else ""
 
       # Check for older messages (LIMIT 1 stops at first match)
-      older_where = ["(m.rx_time < ? OR (m.rx_time = ? AND m.id < ?))"]
-      older_params: list[Any] = [oldest_rx_time, oldest_rx_time, oldest_id]
-      if channel_index is not None:
-        older_where.append("m.channel_index = ?")
-        older_params.append(channel_index)
-
+      older_condition, older_params = cursor_clause(
+        cur, "messages", "m",
+        direction="before", rx_time=rows[0]["rx_time"], row_id=rows[0]["id"],
+        scope=scope, scope_params=tuple(scope_params),
+      )
       cur.execute(
-        f"SELECT 1 FROM messages m WHERE {' AND '.join(older_where)} LIMIT 1",
-        older_params,
+        f"SELECT 1 FROM messages m WHERE {older_condition}{scope_filter} LIMIT 1",
+        [*older_params, *scope_params],
       )
       has_more_older = cur.fetchone() is not None
 
       # Check for newer messages (LIMIT 1 stops at first match)
-      newer_where = ["(m.rx_time > ? OR (m.rx_time = ? AND m.id > ?))"]
-      newer_params: list[Any] = [newest_rx_time, newest_rx_time, newest_id]
-      if channel_index is not None:
-        newer_where.append("m.channel_index = ?")
-        newer_params.append(channel_index)
-
+      newer_condition, newer_params = cursor_clause(
+        cur, "messages", "m",
+        direction="after", rx_time=rows[-1]["rx_time"], row_id=rows[-1]["id"],
+        scope=scope, scope_params=tuple(scope_params),
+      )
       cur.execute(
-        f"SELECT 1 FROM messages m WHERE {' AND '.join(newer_where)} LIMIT 1",
-        newer_params,
+        f"SELECT 1 FROM messages m WHERE {newer_condition}{scope_filter} LIMIT 1",
+        [*newer_params, *scope_params],
       )
       has_more_newer = cur.fetchone() is not None
 
@@ -144,6 +161,11 @@ def get_messages() -> Response:
       "has_more_newer": has_more_newer,
       "channel_index": channel_index,
       "max_messages": max_messages,
+      # The cursors to hand back for the next page in either direction, so no caller
+      # has to reassemble a pair out of the rows and risk dropping the id — which is
+      # exactly what the client used to do. Named as mesh-console names them.
+      "oldest": [rows[0]["rx_time"], rows[0]["id"]] if rows else None,
+      "newest": [rows[-1]["rx_time"], rows[-1]["id"]] if rows else None,
     },
     "messages": rows,
   }
