@@ -214,11 +214,11 @@ def get_dm_conversations() -> Response:
   thing in each group); the differences from it are deliberate and both point
   the same way:
 
-  **Counts and times are over drawn rows.** mesh-console counts every archived
-  row because its list draws every archived row. This list folds tapbacks into
-  pills, so a row's count has to describe the thread it opens — the same rule
-  every number in /api/stats already follows, for the reason documented on
-  `drawn_rows`.
+  **Counts and times are over drawn rows**, so a row's count describes the thread
+  it opens — the same rule every number in /api/stats already follows, for the
+  reason documented on `drawn_rows`. mesh-console counts the same set now, in its
+  own `_drawn_rows`; it used to count every archived row, which is what this note
+  said when both interfaces folded tapbacks and only one of them knew it.
 
   **`newest_inbound_rx_time` is per row, because read state never leaves the
   browser.** mesh-console counts unread server-side from cursors it owns; this

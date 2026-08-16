@@ -81,20 +81,32 @@ def drawn_rows(table: str, alias: str) -> str:
   was live: Primary's newest inbound row was a '👋' reaction and the newest drawn row
   was 85 minutes older, so the channel stayed bold however often it was read.
 
-  **`emoji = 1` only, mirroring is_tapback's first branch.** Rows written before
+  **`emoji IS 1` only, mirroring is_tapback's first branch.** Rows written before
   schema 0.10.0 carry `emoji IS NULL`, and for those the client falls back to an
   emoji-only text heuristic — `is_emoji_only`, which uses Intl.Segmenter and has no
   SQL equivalent. So one legacy reaction can still hold a channel bold. That set is
   bounded and never added to, and `get_unread_ceiling` in rxonly.js is the backstop
   that clears it the moment the reader reaches the end of the list.
 
+  **`IS 1` and not `= 1`, which this said until mesh-console's copy of the rule was
+  written and the difference showed up under test.** `NULL = 1` is NULL, so
+  `NOT (TRUE AND NULL AND TRUE)` is NULL, and a NULL in a WHERE or an ON is not true.
+  Spelled `= 1` this condition dropped every pre-0.10.0 reply whose parent is still
+  archived — not only the legacy reactions the paragraph above is about, but ordinary
+  legacy replies, which are rows the list plainly draws. Against the live archive
+  that was 23 of them, missing from every channel count and from the newest-drawn
+  rx_time the unread cue compares against. `IS` is SQLite's null-safe comparison, and
+  it gives NULL the answer the fallback above assumes it already had.
+
   The orphan half of the client's rule is expressible exactly: `reply_to_text` comes
   from a LEFT JOIN against the whole table, so "no parent in the archive" is this
   EXISTS going false — and such a tapback *is* drawn, as an ordinary row.
 
-  **This rule is maintained by hand in two languages**, here and in `is_tapback` /
-  `is_orphan_tapback` in messages.js, the same arrangement mesh-console's
-  ui/tapbacks.py has with the same JS. Change one, change the others.
+  **This rule is maintained by hand in three languages**, here, in `is_tapback` /
+  `is_orphan_tapback` in messages.js, and in `_drawn_rows` in mesh-console's
+  db/queries.py — which is the same SQL against the same two tables, arrived at
+  from that reader's own `is_tapback` in ui/tapbacks.py. Change one, change the
+  others.
 
   Returns a bare condition, not a clause, because its callers need it in three
   positions: a WHERE, an AND onto an existing WHERE, and a LEFT JOIN's ON.
@@ -105,7 +117,7 @@ def drawn_rows(table: str, alias: str) -> str:
   return f"""
     NOT (
       {alias}.reply_to IS NOT NULL
-      AND {alias}.emoji = 1
+      AND {alias}.emoji IS 1
       AND EXISTS (SELECT 1 FROM {table} p WHERE p.message_id = {alias}.reply_to)
     )
   """
